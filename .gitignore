@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build outputs
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+
+# Runtime data
+db/
+app-runtime/
+postgres-data/
+redis-data/
+
+# Logs
+*.log
+logs/
+
+# Backups
+backups/
+
+# Secrets & env
+.env
+.env.local
+.env.production
+.env.development.local
+.env.test.local
+*.pem
+*.key
+credentials.env
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+
+# Misc
+tmp/
+temp/
+*.tmp
+.cache/
+coverage/
+
+# Standalone next.js output
+.next/standalone/
+
+# Docker
+postgres-data/
+.docker/
+
+# Build artifacts
+.tar.gz
+*.tar

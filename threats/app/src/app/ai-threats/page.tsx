@@ -1,0 +1,95 @@
+import { getRecentDocuments, getStats } from '@/lib/db';
+import DocumentRow from '@/components/DocumentRow';
+import { formatNumber } from '@/lib/format';
+
+export const dynamic = 'force-dynamic';
+
+export default async function AIThreatsPage() {
+  const [docs, stats] = await Promise.all([
+    getRecentDocuments(50, true),
+    getStats()
+  ]);
+
+  return (
+    <div className="max-w-[1400px] mx-auto px-8 py-12">
+      {/* AI hero */}
+      <section className="mb-20 mono-grid -mx-8 px-8 py-20 border-b border-line relative overflow-hidden">
+        <div className="absolute inset-0 scanline-bg opacity-30" />
+        <div className="relative">
+          <div className="flex items-center gap-3 text-[10px] tracking-widest2 text-dim mb-6">
+            <span className="w-1.5 h-1.5 bg-high rounded-full animate-pulse" />
+            <span>AI-ADVERSARIAL INTELLIGENCE</span>
+          </div>
+          <h1 className="text-[80px] leading-[0.85] font-extralight tracking-wider2 mb-6">
+            AI<br />
+            <span className="font-bold text-high">THREATS</span>
+          </h1>
+          <p className="text-sm text-dim max-w-2xl leading-relaxed">
+            LLM jailbreaks, prompt injection campaigns, model extraction attacks, adversarial ML, deepfake phishing, and malicious model weights.
+            Aggregated from MITRE ATLAS, arXiv, AI Incident Database, and security research feeds.
+          </p>
+        </div>
+      </section>
+
+      {/* AI-specific stats */}
+      <section className="mb-20">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-line">
+          <div className="bg-bg p-6">
+            <div className="text-[9px] tracking-widest2 text-dim mb-3">AI THREATS TRACKED</div>
+            <div className="text-3xl font-light text-high">{formatNumber(stats.ai_threats)}</div>
+          </div>
+          <div className="bg-bg p-6">
+            <div className="text-[9px] tracking-widest2 text-dim mb-3">MITRE ATLAS ENTRIES</div>
+            <div className="text-3xl font-light">14</div>
+          </div>
+          <div className="bg-bg p-6">
+            <div className="text-[9px] tracking-widest2 text-dim mb-3">arXiv PAPERS / WEEK</div>
+            <div className="text-3xl font-light">~50</div>
+          </div>
+          <div className="bg-bg p-6">
+            <div className="text-[9px] tracking-widest2 text-dim mb-3">AI INCIDENTS</div>
+            <div className="text-3xl font-light">600+</div>
+          </div>
+        </div>
+      </section>
+
+      {/* MITRE ATLAS techniques */}
+      <section className="mb-20">
+        <div className="text-[10px] tracking-widest2 text-dim mb-4">MITRE ATLAS</div>
+        <h2 className="text-2xl font-light tracking-wider2 mb-6">ADVERSARIAL ML MATRIX</h2>
+        <div className="border border-line">
+          <div className="grid grid-cols-12 text-[10px] tracking-widest2 text-dim border-b border-line bg-panel">
+            <div className="col-span-2 p-4">ID</div>
+            <div className="col-span-6 p-4">NAME</div>
+            <div className="col-span-4 p-4">TACTIC</div>
+          </div>
+          {[
+            ['AML.T0051', 'LLM Prompt Injection', 'initial-access'],
+            ['AML.T0024', 'Exfiltration via Cyber Means', 'exfiltration'],
+            ['AML.T0048', 'Erode ML Model Integrity', 'evasion'],
+            ['AML.T0019', 'Publish Poisoned Datasets', 'initial-access'],
+            ['AML.T0020', 'Poison Training Data', 'initial-access'],
+            ['AML.T0043', 'Craft Adversarial Data', 'evasion'],
+            ['AML.T0015', 'Evade ML Model', 'defense-evasion'],
+            ['AML.T0028', 'ML Model Inference', 'reconnaissance']
+          ].map(([id, name, tactic]) => (
+            <div key={id} className="grid grid-cols-12 text-sm border-b border-line hover:bg-panel transition-colors">
+              <div className="col-span-2 p-4 font-mono text-high text-[11px]">{id}</div>
+              <div className="col-span-6 p-4">{name}</div>
+              <div className="col-span-4 p-4 text-dim text-[10px] tracking-widest2">{tactic?.toUpperCase()}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* AI Threats feed */}
+      <section>
+        <div className="text-[10px] tracking-widest2 text-dim mb-4">SIGNAL</div>
+        <h2 className="text-2xl font-light tracking-wider2 mb-6">AI-THREAT EVENTS</h2>
+        <div className="border-t border-line">
+          {docs.length === 0 ? <div className="p-12 text-center text-dim text-sm">No AI threats ingested yet. The collector is gathering data from MITRE ATLAS, arXiv, and security feeds.</div> : docs.map((d: any) => <DocumentRow key={d.id} doc={d} />)}
+        </div>
+      </section>
+    </div>
+  );
+}

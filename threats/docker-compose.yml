@@ -1,0 +1,64 @@
+name: threats
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: threats-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: threats
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: threats
+    volumes:
+      - ./db/postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U threats -d threats"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - threats-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: threats-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - ./db/redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - threats-net
+
+  app:
+    image: node:20-alpine
+    container_name: threats-app
+    restart: unless-stopped
+    working_dir: /app
+    command: node server.js
+    environment:
+      DATABASE_URL: postgresql://threats:$${POSTGRES_PASSWORD:-changeme}@postgres:5432/threats
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    volumes:
+      - ./app-runtime:/app
+      - ./app/src/lib/db.ts:/app/src/lib/db.ts:ro
+    ports:
+      - "27100:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - threats-net
+
+networks:
+  threats-net:
+    driver: bridge
