@@ -37,7 +37,7 @@ export default async function TechniquePage({ params }: { params: { id: string }
   const docs = docsRes.rows;
 
   return (
-    <div className="max-w-[1400px] mx-auto px-8 py-12">
+    <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
       <Breadcrumb
         items={[
           { label: '/home', href: '/' },
@@ -62,13 +62,13 @@ export default async function TechniquePage({ params }: { params: { id: string }
 
       {/* Description block if known */}
       {technique?.description && (
-        <div className="mb-12 p-4 border border-line bg-panel">
+        <div className="mb-8 md:mb-12 p-3 md:p-4 border border-line bg-panel">
           <div className="text-[10px] tracking-widest2 text-dim mb-2">TECHNIQUE DESCRIPTION</div>
-          <div className="text-[13px] leading-relaxed text-fg">{technique.description}</div>
+          <div className="text-[12px] md:text-[13px] leading-relaxed text-fg break-words">{technique.description}</div>
         </div>
       )}
 
-      <div className="border-t border-line pt-8">
+      <div className="border-t border-line pt-6 md:pt-8">
         <div className="text-[10px] tracking-widest2 text-dim mb-4">EXAMPLES FROM CORPUS ({docs.length})</div>
         {docs.length === 0 ? (
           <EmptyState
@@ -81,9 +81,9 @@ export default async function TechniquePage({ params }: { params: { id: string }
               <a
                 key={d.id}
                 href={`/document/${d.id}`}
-                className="block p-4 border-b border-line hover:bg-panel transition-colors"
+                className="block p-3 md:p-4 border-b border-line hover:bg-panel transition-colors"
               >
-                <div className="text-[14px] font-light leading-tight mb-2">{d.title}</div>
+                <div className="text-[13px] md:text-[14px] font-light leading-tight mb-2 break-words">{d.title}</div>
                 <div className="text-[10px] text-dim font-mono">
                   {d.source_name} · {format(d.published_at || d.fetched_at)}
                 </div>

@@ -62,7 +62,7 @@ export default async function ActorPage({ params }: { params: { slug: string } }
   const relatedActors = relatedRes.rows;
 
   return (
-    <div className="max-w-[1400px] mx-auto px-8 py-12">
+    <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
       <Breadcrumb
         items={[
           { label: '/home', href: '/' },
@@ -85,31 +85,31 @@ export default async function ActorPage({ params }: { params: { slug: string } }
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
-        <div className="border border-line p-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-4 md:gap-6 mb-8 md:mb-12">
+        <div className="border border-line p-3 md:p-5">
           <div className="text-[10px] tracking-widest2 text-dim mb-2">DOCUMENTS</div>
-          <div className="text-3xl font-light">{docs.length}</div>
+          <div className="text-2xl md:text-3xl font-light">{docs.length}</div>
         </div>
-        <div className="border border-line p-5">
+        <div className="border border-line p-3 md:p-5">
           <div className="text-[10px] tracking-widest2 text-dim mb-2">RELATED ACTORS</div>
-          <div className="text-3xl font-light">{relatedActors.length}</div>
+          <div className="text-2xl md:text-3xl font-light">{relatedActors.length}</div>
         </div>
-        <div className="border border-line p-5">
+        <div className="border border-line p-3 md:p-5">
           <div className="text-[10px] tracking-widest2 text-dim mb-2">TYPE</div>
-          <div className="text-[14px] font-mono mt-2">{actor?.type || '—'}</div>
+          <div className="text-[13px] md:text-[14px] font-mono mt-2 break-words">{actor?.type || '—'}</div>
         </div>
       </div>
 
       {/* Related actors */}
       {relatedActors.length > 0 && (
-        <div className="mb-12">
+        <div className="mb-8 md:mb-12">
           <div className="text-[10px] tracking-widest2 text-dim mb-4">FREQUENTLY CO-MENTIONED</div>
           <div className="flex gap-2 flex-wrap">
             {relatedActors.map((r: any) => (
               <a
                 key={r.actor_name}
                 href={`/actor/${r.actor_name.toLowerCase().replace(/\s+/g, '-')}`}
-                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-mono uppercase tracking-widest2 border border-line hover:border-fg transition-colors"
+                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-mono uppercase tracking-widest2 border border-line hover:border-fg transition-colors break-words"
               >
                 {r.actor_name} <span className="text-dim">· {r.cnt}</span>
               </a>
@@ -119,7 +119,7 @@ export default async function ActorPage({ params }: { params: { slug: string } }
       )}
 
       {/* Document list */}
-      <div className="border-t border-line pt-8">
+      <div className="border-t border-line pt-6 md:pt-8">
         <div className="text-[10px] tracking-widest2 text-dim mb-4">DOCUMENTS ({docs.length})</div>
         {docs.length === 0 ? (
           <EmptyState
@@ -132,10 +132,10 @@ export default async function ActorPage({ params }: { params: { slug: string } }
               <a
                 key={d.id}
                 href={`/document/${d.id}`}
-                className="block p-4 border-b border-line hover:bg-panel transition-colors"
+                className="block p-3 md:p-4 border-b border-line hover:bg-panel transition-colors"
               >
-                <div className="flex items-start justify-between gap-4 mb-2">
-                  <div className="text-[14px] font-light leading-tight flex-1">{d.title}</div>
+                <div className="flex items-start justify-between gap-3 md:gap-4 mb-2">
+                  <div className="text-[13px] md:text-[14px] font-light leading-tight flex-1 min-w-0 break-words">{d.title}</div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {d.tlp && <TLPBadge tlp={d.tlp} size="sm" />}
                     {d.severity && <SeverityGauge value={d.severity} size="sm" />}

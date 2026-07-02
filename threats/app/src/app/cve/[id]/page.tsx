@@ -61,7 +61,7 @@ export default async function CVEPage({ params }: { params: { id: string } }) {
   const epss = enrichment?.epss != null ? Number(enrichment.epss) : (docs.find((d: any) => d.epss != null)?.epss ?? null);
 
   return (
-    <div className="max-w-[1400px] mx-auto px-8 py-12">
+    <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
       <Breadcrumb
         items={[
           { label: '/home', href: '/' },
@@ -81,30 +81,30 @@ export default async function CVEPage({ params }: { params: { id: string } }) {
       />
 
       {/* Enrichment grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-line border border-line mb-12">
-        <div className="bg-bg p-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-line border border-line mb-8 md:mb-12">
+        <div className="bg-bg p-3 md:p-5">
           <div className="text-[10px] tracking-widest2 text-dim mb-2">CVSS v3</div>
-          <div className="text-2xl font-light">{cvss != null ? String(cvss) : '—'}</div>
+          <div className="text-xl md:text-2xl font-light">{cvss != null ? String(cvss) : '—'}</div>
         </div>
-        <div className="bg-bg p-5">
+        <div className="bg-bg p-3 md:p-5">
           <div className="text-[10px] tracking-widest2 text-dim mb-2">EPSS</div>
-          <div className="text-2xl font-light">{epss != null ? `${(Number(epss) * 100).toFixed(1)}%` : '—'}</div>
+          <div className="text-xl md:text-2xl font-light">{epss != null ? `${(Number(epss) * 100).toFixed(1)}%` : '—'}</div>
         </div>
-        <div className="bg-bg p-5">
+        <div className="bg-bg p-3 md:p-5">
           <div className="text-[10px] tracking-widest2 text-dim mb-2">CISA KEV</div>
-          <div className="text-2xl font-light">{inKev ? 'YES' : 'NO'}</div>
+          <div className="text-xl md:text-2xl font-light">{inKev ? 'YES' : 'NO'}</div>
         </div>
-        <div className="bg-bg p-5">
+        <div className="bg-bg p-3 md:p-5">
           <div className="text-[10px] tracking-widest2 text-dim mb-2">DOCS</div>
-          <div className="text-2xl font-light">{docs.length}</div>
+          <div className="text-xl md:text-2xl font-light">{docs.length}</div>
         </div>
       </div>
 
       {/* Vendor/Product if known */}
       {(enrichment?.vendor || enrichment?.product) && (
-        <div className="mb-12 p-4 border border-line bg-panel">
+        <div className="mb-8 md:mb-12 p-3 md:p-4 border border-line bg-panel">
           <div className="text-[10px] tracking-widest2 text-dim mb-2">AFFECTED PRODUCT</div>
-          <div className="text-[14px] font-mono">
+          <div className="text-[13px] md:text-[14px] font-mono break-words">
             {enrichment.vendor && <span>{enrichment.vendor}</span>}
             {enrichment.vendor && enrichment.product && <span> · </span>}
             {enrichment.product && <span>{enrichment.product}</span>}
@@ -114,14 +114,14 @@ export default async function CVEPage({ params }: { params: { id: string } }) {
 
       {/* Related CVEs */}
       {relatedCVEs.length > 0 && (
-        <div className="mb-12">
+        <div className="mb-8 md:mb-12">
           <div className="text-[10px] tracking-widest2 text-dim mb-4">FREQUENTLY CO-MENTIONED CVEs</div>
           <div className="flex gap-2 flex-wrap">
             {relatedCVEs.map((r: any) => (
               <a
                 key={r.cve_id}
                 href={`/cve/${r.cve_id}`}
-                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-mono border border-line hover:border-fg transition-colors"
+                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-mono border border-line hover:border-fg transition-colors break-all"
               >
                 {r.cve_id} <span className="text-dim">· {r.cnt}</span>
               </a>
@@ -131,7 +131,7 @@ export default async function CVEPage({ params }: { params: { id: string } }) {
       )}
 
       {/* Documents */}
-      <div className="border-t border-line pt-8">
+      <div className="border-t border-line pt-6 md:pt-8">
         <div className="text-[10px] tracking-widest2 text-dim mb-4">MENTIONED IN ({docs.length})</div>
         {docs.length === 0 ? (
           <EmptyState
@@ -144,10 +144,10 @@ export default async function CVEPage({ params }: { params: { id: string } }) {
               <a
                 key={d.id}
                 href={`/document/${d.id}`}
-                className="block p-4 border-b border-line hover:bg-panel transition-colors"
+                className="block p-3 md:p-4 border-b border-line hover:bg-panel transition-colors"
               >
-                <div className="flex items-start justify-between gap-4 mb-2">
-                  <div className="text-[14px] font-light leading-tight flex-1">{d.title}</div>
+                <div className="flex items-start justify-between gap-3 md:gap-4 mb-2">
+                  <div className="text-[13px] md:text-[14px] font-light leading-tight flex-1 min-w-0 break-words">{d.title}</div>
                   {d.severity && <SeverityGauge value={d.severity} size="sm" />}
                 </div>
                 <div className="text-[10px] text-dim font-mono">

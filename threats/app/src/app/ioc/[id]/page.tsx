@@ -25,8 +25,8 @@ export default async function IOCPage({ params }: { params: { id: string } }) {
   const isHash = ioc.type === 'ssl_sha1' || ioc.type === 'md5' || ioc.type === 'sha256';
 
   return (
-    <div className="min-h-screen pb-32">
-      <article className="max-w-[900px] mx-auto px-8 pt-12">
+    <div className="min-h-screen pb-16 md:pb-32">
+      <article className="max-w-[900px] mx-auto px-4 md:px-8 pt-6 md:pt-12">
         {/* Breadcrumb */}
         <div className="text-[10px] tracking-widest2 text-dim mb-6 flex gap-2">
           <Link href="/" className="hover:text-fg">/HOME</Link>
@@ -52,8 +52,8 @@ export default async function IOCPage({ params }: { params: { id: string } }) {
         </div>
 
         {/* Intelligence grid */}
-        <div className="border border-line mb-8">
-          <div className="flex items-center justify-between border-b border-line bg-panel px-5 py-3">
+        <div className="border border-line mb-6 md:mb-8">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-panel px-3 md:px-5 py-2 md:py-3">
             <div className="text-[11px] tracking-widest2">IOC INTELLIGENCE</div>
             <div className="text-[10px] tracking-widest2 text-dim">CONFIDENCE 0.85</div>
           </div>
@@ -62,30 +62,30 @@ export default async function IOCPage({ params }: { params: { id: string } }) {
             {/* Type-specific renderings */}
             {isIP && (
               <>
-                <div className="bg-bg p-4">
+                <div className="bg-bg p-3 md:p-4">
                   <div className="text-[10px] tracking-widest2 text-dim mb-2">COUNTRY</div>
                   <div className="text-[13px]">{meta.country || '—'}</div>
                 </div>
-                <div className="bg-bg p-4">
+                <div className="bg-bg p-3 md:p-4">
                   <div className="text-[10px] tracking-widest2 text-dim mb-2">ASN</div>
-                  <div className="text-[13px] font-mono">{meta.asn || '—'}</div>
+                  <div className="text-[13px] font-mono break-all">{meta.asn || '—'}</div>
                 </div>
-                <div className="bg-bg p-4 col-span-2">
+                <div className="bg-bg p-3 md:p-4 col-span-2">
                   <div className="text-[10px] tracking-widest2 text-dim mb-2">ASN NAME</div>
-                  <div className="text-[13px]">{meta.asn_name || meta.as_name || '—'}</div>
+                  <div className="text-[13px] break-words">{meta.asn_name || meta.as_name || '—'}</div>
                 </div>
-                <div className="bg-bg p-4">
+                <div className="bg-bg p-3 md:p-4">
                   <div className="text-[10px] tracking-widest2 text-dim mb-2">PORT</div>
                   <div className="text-[13px] font-mono">{meta.port || '—'}</div>
                 </div>
-                <div className="bg-bg p-4">
+                <div className="bg-bg p-3 md:p-4">
                   <div className="text-[10px] tracking-widest2 text-dim mb-2">STATUS</div>
                   <div className="text-[13px]">{meta.status || '—'}</div>
                 </div>
                 {meta.malware && (
-                  <div className="bg-bg p-4 col-span-2">
+                  <div className="bg-bg p-3 md:p-4 col-span-2">
                     <div className="text-[10px] tracking-widest2 text-dim mb-2">ASSOCIATED MALWARE</div>
-                    <div className="text-[14px]" style={{ color: '#ff3030' }}>{meta.malware}</div>
+                    <div className="text-[14px] break-words" style={{ color: '#ff3030' }}>{meta.malware}</div>
                   </div>
                 )}
               </>
@@ -93,18 +93,18 @@ export default async function IOCPage({ params }: { params: { id: string } }) {
 
             {isURL && (
               <>
-                <div className="bg-bg p-4 col-span-2">
+                <div className="bg-bg p-3 md:p-4 col-span-2">
                   <div className="text-[10px] tracking-widest2 text-dim mb-2">URL</div>
                   <div className="text-[12px] font-mono break-all">{ioc.value}</div>
                 </div>
                 {meta.threat && (
-                  <div className="bg-bg p-4 col-span-2">
+                  <div className="bg-bg p-3 md:p-4 col-span-2">
                     <div className="text-[10px] tracking-widest2 text-dim mb-2">THREAT TYPE</div>
-                    <div className="text-[14px]">{meta.threat}</div>
+                    <div className="text-[14px] break-words">{meta.threat}</div>
                   </div>
                 )}
                 {meta.tags && Array.isArray(meta.tags) && (
-                  <div className="bg-bg p-4 col-span-2">
+                  <div className="bg-bg p-3 md:p-4 col-span-2">
                     <div className="text-[10px] tracking-widest2 text-dim mb-2">TAGS</div>
                     <div className="flex flex-wrap gap-1">
                       {meta.tags.map((t: string) => <span key={t} className="tag">{t}</span>)}
@@ -112,15 +112,15 @@ export default async function IOCPage({ params }: { params: { id: string } }) {
                   </div>
                 )}
                 {meta.reporter && (
-                  <div className="bg-bg p-4">
+                  <div className="bg-bg p-3 md:p-4">
                     <div className="text-[10px] tracking-widest2 text-dim mb-2">REPORTER</div>
-                    <div className="text-[12px]">{meta.reporter}</div>
+                    <div className="text-[12px] break-words">{meta.reporter}</div>
                   </div>
                 )}
                 {meta.status && (
-                  <div className="bg-bg p-4">
+                  <div className="bg-bg p-3 md:p-4">
                     <div className="text-[10px] tracking-widest2 text-dim mb-2">STATUS</div>
-                    <div className="text-[12px]">{meta.status}</div>
+                    <div className="text-[12px] break-words">{meta.status}</div>
                   </div>
                 )}
               </>
@@ -128,14 +128,14 @@ export default async function IOCPage({ params }: { params: { id: string } }) {
 
             {isHash && (
               <>
-                <div className="bg-bg p-4 col-span-2">
+                <div className="bg-bg p-3 md:p-4 col-span-2">
                   <div className="text-[10px] tracking-widest2 text-dim mb-2">{ioc.type.toUpperCase().replace('_', ' ')}</div>
                   <div className="text-[12px] font-mono break-all">{ioc.value}</div>
                 </div>
                 {meta.reason && (
-                  <div className="bg-bg p-4 col-span-2">
+                  <div className="bg-bg p-3 md:p-4 col-span-2">
                     <div className="text-[10px] tracking-widest2 text-dim mb-2">LISTING REASON</div>
-                    <div className="text-[12px]">{meta.reason}</div>
+                    <div className="text-[12px] break-words">{meta.reason}</div>
                   </div>
                 )}
               </>
@@ -143,7 +143,7 @@ export default async function IOCPage({ params }: { params: { id: string } }) {
 
             {/* Generic tags from DB */}
             {tags.length > 0 && (
-              <div className="bg-bg p-4 col-span-2">
+              <div className="bg-bg p-3 md:p-4 col-span-2">
                 <div className="text-[10px] tracking-widest2 text-dim mb-2">TAGS</div>
                 <div className="flex flex-wrap gap-1">
                   {tags.map((t: string) => <span key={t} className="tag">{t}</span>)}
@@ -155,16 +155,16 @@ export default async function IOCPage({ params }: { params: { id: string } }) {
 
         {/* Raw meta (collapsible-style) */}
         {Object.keys(meta).length > 0 && (
-          <div className="mb-8">
+          <div className="mb-6 md:mb-8">
             <div className="text-[10px] tracking-widest2 text-dim mb-3">RAW METADATA</div>
-            <pre className="border border-line p-4 text-[11px] font-mono overflow-x-auto whitespace-pre-wrap break-all">
+            <pre className="border border-line p-3 md:p-4 text-[11px] font-mono overflow-x-auto whitespace-pre-wrap break-all">
               {JSON.stringify(meta, null, 2)}
             </pre>
           </div>
         )}
 
         {/* Back link */}
-        <div className="mt-12">
+        <div className="mt-8 md:mt-12">
           <Link href="/iocs" className="text-[10px] tracking-widest2 text-dim hover:text-fg">
             ← BACK TO IOCS
           </Link>

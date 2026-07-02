@@ -11,16 +11,16 @@ export default async function AIThreatsPage() {
   ]);
 
   return (
-    <div className="max-w-[1400px] mx-auto px-8 py-12">
+    <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
       {/* AI hero */}
-      <section className="mb-20 mono-grid -mx-8 px-8 py-20 border-b border-line relative overflow-hidden">
+      <section className="mb-12 md:mb-20 mono-grid -mx-4 md:-mx-8 px-4 md:px-8 py-10 md:py-20 border-b border-line relative overflow-hidden">
         <div className="absolute inset-0 scanline-bg opacity-30" />
         <div className="relative">
-          <div className="flex items-center gap-3 text-[10px] tracking-widest2 text-dim mb-6">
+          <div className="flex items-center gap-3 text-[10px] tracking-widest2 text-dim mb-4 md:mb-6 flex-wrap">
             <span className="w-1.5 h-1.5 bg-high rounded-full animate-pulse" />
             <span>AI-ADVERSARIAL INTELLIGENCE</span>
           </div>
-          <h1 className="text-[80px] leading-[0.85] font-extralight tracking-wider2 mb-6">
+          <h1 className="text-[40px] sm:text-[60px] md:text-[80px] leading-[0.85] font-extralight tracking-wider2 mb-4 md:mb-6">
             AI<br />
             <span className="font-bold text-high">THREATS</span>
           </h1>
@@ -32,36 +32,36 @@ export default async function AIThreatsPage() {
       </section>
 
       {/* AI-specific stats */}
-      <section className="mb-20">
+      <section className="mb-12 md:mb-20">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-line">
-          <div className="bg-bg p-6">
-            <div className="text-[9px] tracking-widest2 text-dim mb-3">AI THREATS TRACKED</div>
-            <div className="text-3xl font-light text-high">{formatNumber(stats.ai_threats)}</div>
+          <div className="bg-bg p-3 md:p-6">
+            <div className="text-[9px] tracking-widest2 text-dim mb-2 md:mb-3">AI THREATS TRACKED</div>
+            <div className="text-2xl md:text-3xl font-light text-high break-words">{formatNumber(stats.ai_threats)}</div>
           </div>
-          <div className="bg-bg p-6">
-            <div className="text-[9px] tracking-widest2 text-dim mb-3">MITRE ATLAS ENTRIES</div>
-            <div className="text-3xl font-light">14</div>
+          <div className="bg-bg p-3 md:p-6">
+            <div className="text-[9px] tracking-widest2 text-dim mb-2 md:mb-3">MITRE ATLAS ENTRIES</div>
+            <div className="text-2xl md:text-3xl font-light">14</div>
           </div>
-          <div className="bg-bg p-6">
-            <div className="text-[9px] tracking-widest2 text-dim mb-3">arXiv PAPERS / WEEK</div>
-            <div className="text-3xl font-light">~50</div>
+          <div className="bg-bg p-3 md:p-6">
+            <div className="text-[9px] tracking-widest2 text-dim mb-2 md:mb-3">arXiv PAPERS / WEEK</div>
+            <div className="text-2xl md:text-3xl font-light">~50</div>
           </div>
-          <div className="bg-bg p-6">
-            <div className="text-[9px] tracking-widest2 text-dim mb-3">AI INCIDENTS</div>
-            <div className="text-3xl font-light">600+</div>
+          <div className="bg-bg p-3 md:p-6">
+            <div className="text-[9px] tracking-widest2 text-dim mb-2 md:mb-3">AI INCIDENTS</div>
+            <div className="text-2xl md:text-3xl font-light">600+</div>
           </div>
         </div>
       </section>
 
       {/* MITRE ATLAS techniques */}
-      <section className="mb-20">
+      <section className="mb-12 md:mb-20">
         <div className="text-[10px] tracking-widest2 text-dim mb-4">MITRE ATLAS</div>
-        <h2 className="text-2xl font-light tracking-wider2 mb-6">ADVERSARIAL ML MATRIX</h2>
-        <div className="border border-line">
-          <div className="grid grid-cols-12 text-[10px] tracking-widest2 text-dim border-b border-line bg-panel">
-            <div className="col-span-2 p-4">ID</div>
-            <div className="col-span-6 p-4">NAME</div>
-            <div className="col-span-4 p-4">TACTIC</div>
+        <h2 className="text-xl md:text-2xl font-light tracking-wider2 mb-4 md:mb-6">ADVERSARIAL ML MATRIX</h2>
+        <div className="border border-line overflow-x-auto">
+          <div className="grid grid-cols-12 text-[10px] tracking-widest2 text-dim border-b border-line bg-panel min-w-[600px]">
+            <div className="col-span-2 p-3 md:p-4">ID</div>
+            <div className="col-span-6 p-3 md:p-4">NAME</div>
+            <div className="col-span-4 p-3 md:p-4">TACTIC</div>
           </div>
           {[
             ['AML.T0051', 'LLM Prompt Injection', 'initial-access'],
@@ -73,10 +73,10 @@ export default async function AIThreatsPage() {
             ['AML.T0015', 'Evade ML Model', 'defense-evasion'],
             ['AML.T0028', 'ML Model Inference', 'reconnaissance']
           ].map(([id, name, tactic]) => (
-            <div key={id} className="grid grid-cols-12 text-sm border-b border-line hover:bg-panel transition-colors">
-              <div className="col-span-2 p-4 font-mono text-high text-[11px]">{id}</div>
-              <div className="col-span-6 p-4">{name}</div>
-              <div className="col-span-4 p-4 text-dim text-[10px] tracking-widest2">{tactic?.toUpperCase()}</div>
+            <div key={id} className="grid grid-cols-12 text-sm border-b border-line hover:bg-panel transition-colors min-w-[600px]">
+              <div className="col-span-2 p-3 md:p-4 font-mono text-high text-[11px] break-all">{id}</div>
+              <div className="col-span-6 p-3 md:p-4 break-words">{name}</div>
+              <div className="col-span-4 p-3 md:p-4 text-dim text-[10px] tracking-widest2">{tactic?.toUpperCase()}</div>
             </div>
           ))}
         </div>
@@ -85,9 +85,9 @@ export default async function AIThreatsPage() {
       {/* AI Threats feed */}
       <section>
         <div className="text-[10px] tracking-widest2 text-dim mb-4">SIGNAL</div>
-        <h2 className="text-2xl font-light tracking-wider2 mb-6">AI-THREAT EVENTS</h2>
+        <h2 className="text-xl md:text-2xl font-light tracking-wider2 mb-4 md:mb-6">AI-THREAT EVENTS</h2>
         <div className="border-t border-line">
-          {docs.length === 0 ? <div className="p-12 text-center text-dim text-sm">No AI threats ingested yet. The collector is gathering data from MITRE ATLAS, arXiv, and security feeds.</div> : docs.map((d: any) => <DocumentRow key={d.id} doc={d} />)}
+          {docs.length === 0 ? <div className="p-8 md:p-12 text-center text-dim text-sm">No AI threats ingested yet. The collector is gathering data from MITRE ATLAS, arXiv, and security feeds.</div> : docs.map((d: any) => <DocumentRow key={d.id} doc={d} />)}
         </div>
       </section>
     </div>

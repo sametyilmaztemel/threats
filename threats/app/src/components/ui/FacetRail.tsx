@@ -44,7 +44,7 @@ function toggleUrl(baseUrl: string, facetName: string, value: string, selected: 
 
 export default function FacetRail({ facets, baseUrl = '/feed' }: FacetRailProps) {
   return (
-    <aside className="w-[280px] flex-shrink-0 sticky top-20 self-start">
+    <aside className="w-full md:w-[280px] flex-shrink-0 md:sticky md:top-20 md:self-start">
       <div className="text-[10px] tracking-widest2 text-dim uppercase mb-4 border-b border-line pb-2">
         FILTERS
       </div>

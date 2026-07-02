@@ -5,13 +5,13 @@ export default function DocumentRow({ doc }: { doc: any }) {
   const date = doc.published_at || doc.fetched_at;
   return (
     <div className="border-b border-line hover:bg-panel transition-colors group">
-      <div className="grid grid-cols-12 gap-4 p-5 items-start">
-        <div className="col-span-1 text-[10px] tracking-widest2 text-dim pt-1">
+      <div className="grid grid-cols-12 gap-2 md:gap-4 p-3 md:p-5 items-start">
+        <div className="col-span-12 sm:col-span-1 text-[10px] tracking-widest2 text-dim pt-1 order-1">
           {severityLabel(doc.severity)}
         </div>
-        <div className="col-span-7">
+        <div className="col-span-12 sm:col-span-7 order-2">
           <Link href={`/document/${doc.id}`} className="block">
-            <div className={`text-[15px] leading-snug mb-1 group-hover:text-fg ${severityClass(doc.severity)}`}>
+            <div className={`text-[14px] md:text-[15px] leading-snug mb-1 group-hover:text-fg ${severityClass(doc.severity)}`}>
               {doc.title}
             </div>
             {doc.summary && (
@@ -28,12 +28,12 @@ export default function DocumentRow({ doc }: { doc: any }) {
             {doc.ai_threat && <span className="tag" style={{ color: '#ff9500', borderColor: '#ff9500' }}>AI</span>}
           </div>
         </div>
-        <div className="col-span-2 text-[10px] tracking-widest2 text-dim pt-1 truncate">
+        <div className="col-span-6 sm:col-span-2 text-[10px] tracking-widest2 text-dim pt-1 truncate order-3">
           {doc.source_name || '—'}
         </div>
-        <div className="col-span-2 text-[10px] tracking-widest2 text-dim pt-1 text-right flex flex-col items-end gap-1">
+        <div className="col-span-6 sm:col-span-2 text-[10px] tracking-widest2 text-dim pt-1 text-right flex flex-col items-start sm:items-end gap-1 order-4">
           <span>{relativeTime(date)}</span>
-          <div className="flex gap-1">
+          <div className="flex gap-2 sm:gap-1">
             <Link
               href={`/document/${doc.id}`}
               className="text-fg hover:underline opacity-50 group-hover:opacity-100"

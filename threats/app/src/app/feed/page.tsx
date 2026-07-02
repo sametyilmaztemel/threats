@@ -517,7 +517,7 @@ export default async function FeedPage({
   };
 
   return (
-    <div className="max-w-[1400px] mx-auto px-8 py-12">
+    <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
       <PageHeader
         eyebrow="THREAT INTELLIGENCE FEED"
         title={`${total.toLocaleString()} ${total === 1 ? 'report' : 'reports'}`}
@@ -604,8 +604,28 @@ export default async function FeedPage({
         </div>
       )}
 
-      <div className="flex gap-8">
-        <aside className="w-[280px] flex-shrink-0">
+      <div className="flex flex-col md:flex-row gap-4 md:gap-8">
+        {/* Mobile-only collapsible filter rail */}
+        <details className="md:hidden border border-line">
+          <summary className="cursor-pointer list-none p-3 text-[11px] tracking-widest2 flex items-center justify-between hover:bg-panel">
+            <span>FILTERS{hasActiveFilters ? ` (${[
+              searchParams.sev && 'SEV',
+              searchParams.cat && 'CAT',
+              searchParams.actor && 'ACTOR',
+              searchParams.cve && 'CVE',
+              searchParams.source && 'SRC',
+              searchParams.tlp && 'TLP',
+              searchParams.ai && 'AI'
+            ].filter(Boolean).length})` : ''}</span>
+            <span className="text-dim text-[10px]">▼</span>
+          </summary>
+          <div className="p-3 border-t border-line">
+            <FacetRail facets={facets} baseUrl="/feed" />
+          </div>
+        </details>
+
+        {/* Desktop sidebar */}
+        <aside className="hidden md:block w-[280px] flex-shrink-0">
           <FacetRail facets={facets} baseUrl="/feed" />
         </aside>
 
@@ -625,7 +645,7 @@ export default async function FeedPage({
               </div>
 
               {totalPages > 1 && (
-                <div className="mt-8 flex items-center justify-between border-t border-line pt-6">
+                <div className="mt-6 md:mt-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-line pt-4 md:pt-6">
                   <div className="text-[10px] tracking-widest2 text-dim">
                     Page {page} of {totalPages} ·{' '}
                     {(offset + 1).toLocaleString()}-
@@ -693,10 +713,10 @@ function DocCard({ doc }: { doc: any }) {
   return (
     <Link
       href={`/document/${doc.id}`}
-      className="block p-5 border-b border-line hover:bg-bg-2 transition-colors"
+      className="block p-3 md:p-5 border-b border-line hover:bg-bg-2 transition-colors"
     >
-      <div className="flex items-start justify-between gap-4 mb-2">
-        <h3 className="text-[16px] font-light leading-tight flex-1">
+      <div className="flex items-start justify-between gap-3 md:gap-4 mb-2">
+        <h3 className="text-[14px] md:text-[16px] font-light leading-tight flex-1 min-w-0 break-words">
           {doc.title}
         </h3>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -732,7 +752,7 @@ function DocCard({ doc }: { doc: any }) {
       </div>
 
       {excerpt && (
-        <p className="text-[13px] leading-relaxed text-fg line-clamp-3 mb-3">
+        <p className="text-[12px] md:text-[13px] leading-relaxed text-fg line-clamp-3 mb-3 break-words">
           {excerpt}…
         </p>
       )}

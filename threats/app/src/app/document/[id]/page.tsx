@@ -19,7 +19,7 @@ function formatDate(d: string | Date | null | undefined): string {
 function SidebarSection({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="border-t border-line pt-3">
-      <div className="text-[10px] tracking-widest2 text-dim mb-2">{label}</div>
+      <div className="text-[10px] tracking-widest2 text-dim mb-2 break-words">{label}</div>
       {children}
     </div>
   );
@@ -154,9 +154,9 @@ export default async function DocumentPage({ params }: { params: { id: string } 
 
           {/* AI Summary if exists */}
           {doc.ai_summary && (
-            <div className="mb-8 border border-line p-5 bg-panel">
+            <div className="mb-8 border border-line p-3 md:p-5 bg-panel">
               <div className="text-[10px] tracking-widest2 text-dim mb-2">AI SUMMARY · LLM-GENERATED</div>
-              <div className="text-[14px] leading-relaxed text-fg">{doc.ai_summary}</div>
+              <div className="text-[13px] md:text-[14px] leading-relaxed text-fg">{doc.ai_summary}</div>
             </div>
           )}
 
@@ -164,7 +164,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
           {doc.summary && !doc.ai_summary && (
             <div className="mb-8">
               <div className="text-[10px] tracking-widest2 text-dim mb-3">EXECUTIVE SUMMARY</div>
-              <div className="text-[14px] leading-relaxed text-fg border-l-2 border-line pl-5">
+              <div className="text-[13px] md:text-[14px] leading-relaxed text-fg border-l-2 border-line pl-3 md:pl-5">
                 {doc.summary}
               </div>
             </div>
@@ -172,9 +172,9 @@ export default async function DocumentPage({ params }: { params: { id: string } 
 
           {/* Full Report */}
           {doc.content && doc.content !== doc.summary && (
-            <div className="mb-12">
+            <div className="mb-8 md:mb-12">
               <div className="text-[10px] tracking-widest2 text-dim mb-3">FULL REPORT</div>
-              <div className="text-[13px] leading-relaxed text-fg whitespace-pre-wrap font-mono">
+              <div className="text-[12px] md:text-[13px] leading-relaxed text-fg whitespace-pre-wrap font-mono overflow-x-auto">
                 {doc.content}
               </div>
             </div>
@@ -182,7 +182,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
 
           {/* Related Documents */}
           {related.length > 0 && (
-            <div className="border-t border-line pt-8">
+            <div className="border-t border-line pt-6 md:pt-8">
               <div className="text-[10px] tracking-widest2 text-dim mb-4">RELATED INTELLIGENCE</div>
               <div className="space-y-2">
                 {related.map((r: any) => (
@@ -191,7 +191,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
                     href={`/document/${r.id}`}
                     className="block p-3 border border-line hover:border-fg transition-colors"
                   >
-                    <div className="text-[12px] font-mono">{r.title}</div>
+                    <div className="text-[12px] font-mono break-words">{r.title}</div>
                     <div className="text-[10px] text-dim mt-1">
                       {r.source_name} · {formatDate(r.published_at || r.fetched_at)}
                     </div>
