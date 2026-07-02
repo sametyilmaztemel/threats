@@ -1,11 +1,14 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import Nav from '@/components/Nav';
 
 export const metadata: Metadata = {
   title: 'threats.0rce.com — Threat Intelligence',
   description: 'Aggregated cyber threat intelligence. Real-time vulnerabilities, IOCs, threat actors, and AI-specific attacks.',
-  robots: 'noindex, nofollow',
+  robots: 'noindex, nofollow'
+};
+
+export const viewport: Viewport = {
   themeColor: '#000000'
 };
 
