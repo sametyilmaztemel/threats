@@ -8,6 +8,23 @@ const parser = new Parser({ timeout: 30000, headers: { 'User-Agent': 'threats.0r
 
 const AI_KEYWORDS = ['llm', 'gpt', 'claude', 'gemini', 'prompt injection', 'jailbreak', 'adversarial', 'model extraction', 'deepfake', 'machine learning', 'neural network', 'rag', 'embedding', 'transformer', 'training data', 'fine-tun', 'openai', 'anthropic', 'huggingface', 'langchain'];
 
+function stripHTML(html: string): string {
+  if (!html) return '';
+  let text = html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text;
+}
+
 function detectAI(text: string): boolean {
   const lower = text.toLowerCase();
   return AI_KEYWORDS.some(k => lower.includes(k));
@@ -50,11 +67,13 @@ async function ingestRSS(source: any) {
     let count = 0;
     for (const item of feed.items.slice(0, 50)) {
       if (!item.link || !item.title) continue;
-      const text = `${item.title} ${item.contentSnippet || ''} ${item.content || ''}`;
+      const text = `${item.title} ${stripHTML(item.contentSnippet || '')} ${stripHTML(item.content || '')}`;
       const aiThreat = detectAI(text);
       const cves = extractCVEs(text);
       const severity = detectSeverity(text);
       const category = categoryFor(text);
+
+      const cleanContent = stripHTML(item.content || item.contentSnippet || '');
 
       try {
         await pool.query(
@@ -64,8 +83,8 @@ async function ingestRSS(source: any) {
           [
             source.id, item.guid || item.link,
             item.title, item.link,
-            item.content || item.contentSnippet,
-            item.contentSnippet?.slice(0, 500),
+            cleanContent,
+            cleanContent.slice(0, 500),
             item.creator || item.author,
             item.pubDate ? new Date(item.pubDate) : null,
             severity, category, cves, aiThreat,
