@@ -1,18 +1,28 @@
-import { getDocument, getRelatedDocuments } from '@/lib/db';
-import { relativeTime, severityClass, severityLabel } from '@/lib/format';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { getDocument, getRelatedDocuments } from '@/lib/db';
+import TwoColumn from '@/components/layout/TwoColumn';
+import Breadcrumb from '@/components/layout/Breadcrumb';
+import PageHeader from '@/components/layout/PageHeader';
+import RelatedEntities from '@/components/layout/RelatedEntities';
+import TLPBadge from '@/components/ui/TLPBadge';
+import SeverityGauge from '@/components/ui/SeverityGauge';
+import CopyButton from '@/components/ui/CopyButton';
 
 export const dynamic = 'force-dynamic';
 
-function wordCount(s: string | null | undefined): number {
-  if (!s) return 0;
-  return s.split(/\s+/).filter(Boolean).length;
+function formatDate(d: string | Date | null | undefined): string {
+  if (!d) return '—';
+  const date = typeof d === 'string' ? new Date(d) : d;
+  return date.toISOString().split('T')[0];
 }
 
-function tagValue(s: string | null | undefined): string {
-  if (!s) return '—';
-  return s;
+function SidebarSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="border-t border-line pt-3">
+      <div className="text-[10px] tracking-widest2 text-dim mb-2">{label}</div>
+      {children}
+    </div>
+  );
 }
 
 export default async function DocumentPage({ params }: { params: { id: string } }) {
@@ -22,204 +32,176 @@ export default async function DocumentPage({ params }: { params: { id: string } 
   const doc = await getDocument(id);
   if (!doc) notFound();
 
-  const related = await getRelatedDocuments(id, 5);
-  const wc = wordCount(doc.content);
-  const date = doc.published_at || doc.fetched_at;
-  const sev = doc.severity || 5;
+  // Source tier is smallint (1/2/3) in DB; coerce to string for display
+  const tierNum = String(doc.source_tier ?? '?');
+
+  const related = await getRelatedDocuments(id, 10);
 
   return (
-    <div className="min-h-screen pb-32">
-      {/* Reading progress bar */}
-      <div className="fixed top-[48px] left-0 h-[2px] bg-[#ff9500] z-50" style={{ width: '0%' }} id="read-prog" />
+    <TwoColumn
+      left={
+        <div className="space-y-4">
+          {/* Hero */}
+          <div>
+            <div className="text-[10px] tracking-widest2 text-dim mb-2">INTELLIGENCE PACKAGE</div>
+            <div className="flex items-center gap-2 mb-3">
+              <TLPBadge tlp={doc.tlp || 'GREEN'} />
+              <SeverityGauge value={doc.severity || 5} showLabel />
+            </div>
+            <div className="text-[11px] text-dim space-y-1 font-mono">
+              <div>T{tierNum} · {doc.word_count || '—'} words</div>
+              <div>{Math.round((doc.confidence || 0) * 100)}% confidence</div>
+              {doc.kill_chain_phase && <div>PHASE: {String(doc.kill_chain_phase).toUpperCase()}</div>}
+            </div>
+          </div>
 
-      <article className="max-w-[900px] mx-auto px-8 pt-12">
-        {/* Breadcrumb */}
-        <div className="text-[10px] tracking-widest2 text-dim mb-6 flex gap-2">
-          <Link href="/" className="hover:text-fg">/HOME</Link>
-          <span>›</span>
-          <Link href="/feed" className="hover:text-fg">/FEED</Link>
-          <span>›</span>
-          <span className="text-fg">/DOCUMENT/{id}</span>
-        </div>
-
-        {/* Hero */}
-        <div className="mb-12">
-          <h1 className={`text-3xl md:text-4xl font-light leading-tight tracking-wider2 mb-4 ${severityClass(sev)}`}>
-            {doc.title}
-          </h1>
-          <div className="flex flex-wrap items-center gap-3 text-[10px] tracking-widest2 text-dim">
-            <span className="text-fg">{tagValue(doc.source_name)}</span>
-            {doc.source_tier && <span>T{doc.source_tier}</span>}
-            {sev >= 9 && <span className="text-[#ff3030]">CRITICAL</span>}
-            {sev >= 7 && sev < 9 && <span className="text-[#ff9500]">HIGH</span>}
-            {doc.ai_threat && (
-              <span style={{ color: '#ff9500', borderColor: '#ff9500' }} className="border px-2 py-[1px]">
-                AI THREAT
-              </span>
+          {/* Categories */}
+          <SidebarSection label="CATEGORIES">
+            {(doc.category || []).length === 0 ? (
+              <span className="text-dim text-xs">—</span>
+            ) : (
+              <RelatedEntities
+                items={(doc.category || []).map((c: string) => ({ kind: 'sector', value: c, display: c }))}
+              />
             )}
-            <span>{date ? new Date(date).toISOString().slice(0, 10) : '—'}</span>
-            {wc > 0 && <span>{wc} words</span>}
-            <a
-              href={doc.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-fg hover:underline ml-auto"
-            >
-              ORIGINAL ↗
-            </a>
-          </div>
+          </SidebarSection>
+
+          {/* Threat Actors */}
+          <SidebarSection label="THREAT ACTORS">
+            {(doc.actors || []).length === 0 ? (
+              <span className="text-dim text-xs">—</span>
+            ) : (
+              <RelatedEntities
+                items={(doc.actors || []).map((a: string) => ({ kind: 'actor', value: a, display: a }))}
+              />
+            )}
+          </SidebarSection>
+
+          {/* CVEs */}
+          <SidebarSection label="CVEs">
+            {(doc.cves || []).length === 0 ? (
+              <span className="text-dim text-xs">—</span>
+            ) : (
+              <RelatedEntities
+                items={(doc.cves || []).map((c: string) => ({ kind: 'cve', value: c, display: c }))}
+              />
+            )}
+          </SidebarSection>
+
+          {/* MITRE ATT&CK */}
+          <SidebarSection label="ATT&CK TECHNIQUES">
+            {(doc.techniques || []).length === 0 ? (
+              <span className="text-dim text-xs">—</span>
+            ) : (
+              <RelatedEntities
+                items={(doc.techniques || []).map((t: string) => ({ kind: 'technique', value: t, display: t }))}
+              />
+            )}
+          </SidebarSection>
+
+          {/* Sectors */}
+          <SidebarSection label="TARGET SECTORS">
+            {(doc.sectors || []).length === 0 ? (
+              <span className="text-dim text-xs">—</span>
+            ) : (
+              <RelatedEntities
+                items={(doc.sectors || []).map((s: string) => ({ kind: 'sector', value: s, display: s }))}
+              />
+            )}
+          </SidebarSection>
+
+          {/* IOCs */}
+          <SidebarSection label="IOCs">
+            <div className="text-[13px]">
+              {doc.ioc_count || 0} <span className="text-dim text-[10px]">extracted</span>
+            </div>
+          </SidebarSection>
+
+          {/* Languages */}
+          <SidebarSection label="LANGUAGE">
+            <div className="text-[13px]">{(doc.language || 'en').toUpperCase()}</div>
+          </SidebarSection>
         </div>
+      }
+      right={
+        <article>
+          <Breadcrumb
+            items={[
+              { label: '/home', href: '/' },
+              { label: '/feed', href: '/feed' },
+              { label: `/document/${doc.id}` },
+            ]}
+          />
 
-        {/* Intelligence Classification */}
-        <div className="border border-line mb-8">
-          <div className="flex items-center justify-between border-b border-line bg-panel px-5 py-3">
-            <div className="flex items-center gap-2 text-[11px] tracking-widest2">
-              <span className="inline-block w-2 h-2 rounded-full" style={{ background: sev >= 8 ? '#ff3030' : sev >= 5 ? '#ff9500' : '#00d77a' }} />
-              INTELLIGENCE CLASSIFICATION
-            </div>
-            <div className="text-[10px] tracking-widest2 text-dim">
-              SEV {sev}/10
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-px bg-line">
-            <div className="bg-bg p-4">
-              <div className="text-[10px] tracking-widest2 text-dim mb-2">CATEGORIES</div>
-              <div className="flex flex-wrap gap-1">
-                {doc.category?.length ? doc.category.map((c: string) => (
-                  <span key={c} className="tag">{c}</span>
-                )) : <span className="text-dim text-xs">—</span>}
-              </div>
-            </div>
-            <div className="bg-bg p-4">
-              <div className="text-[10px] tracking-widest2 text-dim mb-2">THREAT ACTORS</div>
-              <div className="flex flex-wrap gap-1">
-                {doc.actors?.length ? doc.actors.map((a: string) => (
-                  <span key={a} className="tag">{a}</span>
-                )) : <span className="text-dim text-xs">—</span>}
-              </div>
-            </div>
-            <div className="bg-bg p-4">
-              <div className="text-[10px] tracking-widest2 text-dim mb-2">CVEs</div>
-              <div className="flex flex-wrap gap-1">
-                {doc.cves?.length ? doc.cves.map((c: string) => (
-                  <a key={c} href={`/cves?cve=${c}`} className="tag hover:border-fg">{c}</a>
-                )) : <span className="text-dim text-xs">—</span>}
-              </div>
-            </div>
-            <div className="bg-bg p-4">
-              <div className="text-[10px] tracking-widest2 text-dim mb-2">TECHNIQUES</div>
-              <div className="flex flex-wrap gap-1">
-                {doc.techniques?.length ? doc.techniques.map((t: string) => (
-                  <span key={t} className="tag">{t}</span>
-                )) : <span className="text-dim text-xs">—</span>}
-              </div>
-            </div>
-            <div className="bg-bg p-4">
-              <div className="text-[10px] tracking-widest2 text-dim mb-2">SECTORS</div>
-              <div className="flex flex-wrap gap-1">
-                {doc.sectors?.length ? doc.sectors.map((s: string) => (
-                  <span key={s} className="tag">{s}</span>
-                )) : <span className="text-dim text-xs">—</span>}
-              </div>
-            </div>
-            <div className="bg-bg p-4">
-              <div className="text-[10px] tracking-widest2 text-dim mb-2">IOCS</div>
-              <div className="text-[13px]">
-                {doc.ioc_count || 0} <span className="text-dim text-[10px]">extracted</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Summary (Executive) */}
-        {doc.summary && (
-          <div className="mb-8">
-            <div className="text-[10px] tracking-widest2 text-dim mb-3">EXECUTIVE SUMMARY</div>
-            <div className="text-[14px] leading-relaxed text-fg border-l-2 border-line pl-5">
-              {doc.summary}
-            </div>
-          </div>
-        )}
-
-        {/* Full Content */}
-        {doc.content && doc.content !== doc.summary && (
-          <div className="mb-12">
-            <div className="text-[10px] tracking-widest2 text-dim mb-3">FULL REPORT</div>
-            <div className="text-[13px] leading-relaxed text-fg whitespace-pre-wrap font-mono">
-              {doc.content}
-            </div>
-          </div>
-        )}
-
-        {/* Meta Footer */}
-        <div className="border-t border-line pt-6 mt-12 grid grid-cols-2 md:grid-cols-4 gap-4 text-[10px] tracking-widest2 text-dim">
-          <div>
-            <div className="mb-1">AUTHOR</div>
-            <div className="text-fg">{tagValue(doc.author)}</div>
-          </div>
-          <div>
-            <div className="mb-1">LANGUAGE</div>
-            <div className="text-fg">{(doc.language || 'en').toUpperCase()}</div>
-          </div>
-          <div>
-            <div className="mb-1">PUBLISHED</div>
-            <div className="text-fg">{date ? new Date(date).toISOString().replace('T', ' ').slice(0, 16) : '—'}</div>
-          </div>
-          <div>
-            <div className="mb-1">FETCHED</div>
-            <div className="text-fg">{doc.fetched_at ? relativeTime(doc.fetched_at) : '—'}</div>
-          </div>
-        </div>
-
-        {/* Related */}
-        {related.length > 0 && (
-          <div className="mt-16">
-            <div className="text-[10px] tracking-widest2 text-dim mb-4">RELATED INTELLIGENCE</div>
-            <div className="border-t border-line">
-              {related.map((r: any) => (
-                <Link
-                  key={r.id}
-                  href={`/document/${r.id}`}
-                  className="block border-b border-line hover:bg-panel transition-colors p-4"
+          <PageHeader
+            eyebrow={doc.source_name}
+            title={doc.title}
+            subtitle={`${doc.author || 'Unknown'} · ${formatDate(doc.published_at || doc.fetched_at)}`}
+            actions={
+              <div className="flex items-center gap-2">
+                <CopyButton value={JSON.stringify(doc, null, 2)} label="COPY JSON" />
+                <a
+                  href={doc.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] tracking-widest2 px-3 py-1 border border-line hover:bg-fg hover:text-bg transition-colors"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className={`text-[10px] tracking-widest2 ${severityClass(r.severity)} w-12`}>
-                      {severityLabel(r.severity)}
-                    </span>
-                    <span className="text-[13px] flex-1 truncate">{r.title}</span>
-                    <span className="text-[10px] tracking-widest2 text-dim">{r.source_name || '—'}</span>
-                    {r.ai_threat && (
-                      <span className="text-[10px]" style={{ color: '#ff9500' }}>AI</span>
-                    )}
-                  </div>
-                </Link>
-              ))}
+                  ORIGINAL ↗
+                </a>
+              </div>
+            }
+          />
+
+          {/* AI Summary if exists */}
+          {doc.ai_summary && (
+            <div className="mb-8 border border-line p-5 bg-panel">
+              <div className="text-[10px] tracking-widest2 text-dim mb-2">AI SUMMARY · LLM-GENERATED</div>
+              <div className="text-[14px] leading-relaxed text-fg">{doc.ai_summary}</div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Back link */}
-        <div className="mt-12">
-          <Link href="/feed" className="text-[10px] tracking-widest2 text-dim hover:text-fg">
-            ← BACK TO FEED
-          </Link>
-        </div>
-      </article>
+          {/* Executive Summary */}
+          {doc.summary && !doc.ai_summary && (
+            <div className="mb-8">
+              <div className="text-[10px] tracking-widest2 text-dim mb-3">EXECUTIVE SUMMARY</div>
+              <div className="text-[14px] leading-relaxed text-fg border-l-2 border-line pl-5">
+                {doc.summary}
+              </div>
+            </div>
+          )}
 
-      {/* Reading progress script */}
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `
-window.addEventListener('scroll', function() {
-  const h = document.documentElement;
-  const pct = (h.scrollTop / (h.scrollHeight - h.clientHeight)) * 100;
-  const bar = document.getElementById('read-prog');
-  if (bar) bar.style.width = Math.min(100, Math.max(0, pct)) + '%';
-});
-          `,
-        }}
-      />
-    </div>
+          {/* Full Report */}
+          {doc.content && doc.content !== doc.summary && (
+            <div className="mb-12">
+              <div className="text-[10px] tracking-widest2 text-dim mb-3">FULL REPORT</div>
+              <div className="text-[13px] leading-relaxed text-fg whitespace-pre-wrap font-mono">
+                {doc.content}
+              </div>
+            </div>
+          )}
+
+          {/* Related Documents */}
+          {related.length > 0 && (
+            <div className="border-t border-line pt-8">
+              <div className="text-[10px] tracking-widest2 text-dim mb-4">RELATED INTELLIGENCE</div>
+              <div className="space-y-2">
+                {related.map((r: any) => (
+                  <a
+                    key={r.id}
+                    href={`/document/${r.id}`}
+                    className="block p-3 border border-line hover:border-fg transition-colors"
+                  >
+                    <div className="text-[12px] font-mono">{r.title}</div>
+                    <div className="text-[10px] text-dim mt-1">
+                      {r.source_name} · {formatDate(r.published_at || r.fetched_at)}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </article>
+      }
+    />
   );
 }

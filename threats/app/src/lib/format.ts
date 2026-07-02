@@ -14,6 +14,12 @@ export function relativeTime(date: Date | string | null | undefined): string {
   return d.toISOString().slice(0, 10);
 }
 
+export function format(date: Date | string | null | undefined): string {
+  if (!date) return '—';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toISOString().slice(0, 10);
+}
+
 export function severityClass(sev: number | null | undefined): string {
   if (sev == null) return 'text-dim';
   if (sev >= 8) return 'sev-crit';
