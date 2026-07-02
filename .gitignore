@@ -11,7 +11,8 @@ dist/
 *.tsbuildinfo
 
 # Runtime data
-db/
+db/redis-data/
+db/postgres-data/
 app-runtime/
 postgres-data/
 redis-data/
