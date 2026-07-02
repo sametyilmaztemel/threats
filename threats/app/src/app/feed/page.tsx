@@ -491,7 +491,7 @@ export default async function FeedPage({
           selected: selectedSet.tlp.has(r.value),
         })),
     },
-  ];
+  ].filter(f => f.values.length > 0);
 
   const hasActiveFilters =
     !!searchParams.sev ||
@@ -727,28 +727,8 @@ function DocCard({ doc }: { doc: any }) {
         </div>
       </div>
 
-      <div className="text-[11px] text-dim font-mono mb-3 flex items-center gap-2 flex-wrap">
-        <span>{doc.source_name || '—'}</span>
-        <span>·</span>
-        <span>T{doc.source_tier ?? '?'}</span>
-        <span>·</span>
-        <span>
-          {doc.published_at
-            ? String(doc.published_at).split('T')[0]
-            : '—'}
-        </span>
-        {doc.word_count > 0 && (
-          <>
-            <span>·</span>
-            <span>{doc.word_count.toLocaleString()} words</span>
-          </>
-        )}
-        {doc.ai_threat && (
-          <>
-            <span>·</span>
-            <span className="text-[#ff9500]">AI THREAT</span>
-          </>
-        )}
+      <div className="text-[11px] text-dim font-mono mb-3">
+        {doc.source_name || '—'} · T{doc.source_tier ?? '?'}{doc.published_at ? ' · ' + new Date(doc.published_at).toISOString().split('T')[0] : ''}{doc.word_count > 0 ? ` · ${doc.word_count} words` : ''}{doc.ai_threat ? ' · AI THREAT' : ''}
       </div>
 
       {excerpt && (
