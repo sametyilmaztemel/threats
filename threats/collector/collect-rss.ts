@@ -1,6 +1,7 @@
 import Parser from 'rss-parser';
 import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
+import { extractIOCs } from './extract-iocs-from-text.js';
 dotenv.config();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -76,10 +77,11 @@ async function ingestRSS(source: any) {
       const cleanContent = stripHTML(item.content || item.contentSnippet || '');
 
       try {
-        await pool.query(
+        const ins = await pool.query(
           `INSERT INTO documents (source_id, external_id, title, url, content, summary, author, published_at, severity, category, cves, ai_threat, hash)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-           ON CONFLICT (url) DO NOTHING`,
+           ON CONFLICT (url) DO NOTHING
+           RETURNING id`,
           [
             source.id, item.guid || item.link,
             item.title, item.link,
@@ -92,8 +94,34 @@ async function ingestRSS(source: any) {
           ]
         );
         count++;
+        // Extract IOCs from content + title and link to this document
+        const docId = ins.rows[0]?.id;
+        if (docId) {
+          const iocs = extractIOCs(`${item.title} ${cleanContent}`);
+          for (const i of iocs) {
+            try {
+              const r = await pool.query(
+                `INSERT INTO iocs (value, type, document_id, source_id, confidence, ai_related, meta)
+                 VALUES ($1, $2, $3, $4, 0.6, FALSE, $5)
+                 ON CONFLICT (value, type, document_id) DO NOTHING
+                 RETURNING id`,
+                [i.value, i.type, docId, source.id, JSON.stringify({ extraction: 'rss_item', doc_id: docId })]
+              );
+              if (r.rowCount && r.rowCount > 0) {
+                await pool.query(
+                  `INSERT INTO document_iocs (document_id, ioc_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+                  [docId, r.rows[0].id]
+                );
+              }
+            } catch { /* skip malformed IOC */ }
+          }
+          // Update ioc_count on document
+          if (iocs.length > 0) {
+            await pool.query(`UPDATE documents SET ioc_count = $1 WHERE id = $2`, [iocs.length, docId]).catch(() => {});
+          }
+        }
       } catch (e: any) {
-        // skip duplicate
+        // skip duplicate or other errors
       }
     }
     await pool.query(
