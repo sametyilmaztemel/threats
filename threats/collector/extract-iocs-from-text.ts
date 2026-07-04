@@ -22,8 +22,74 @@ function isIPv4Private(ip: string): boolean {
   return false;
 }
 
+// Version-number heuristic: an IPv4-shaped value that appears near a "version" keyword
+// in the surrounding text is treated as a software version, not an IOC.
+function isVersionContext(ip: string, text: string): boolean {
+  const escaped = ip.replace(/\./g, '\\.');
+  const versionPattern = new RegExp(
+    `(version|v|build|release|kernel|spec|^)\\s*[:=]?\\s*${escaped}|${escaped}\\s*(version|release|build|kernel|spec)`,
+    'i'
+  );
+  return versionPattern.test(text);
+}
+
+// Known file/code TLD-like suffixes that are NOT real domains when matched as the last label
+// NOTE: must not overlap with VALID_TLDS below — those double as real TLDs.
+// Heuristic: any TLD that is *also* a popular filename/code extension is treated as code.
+const FILE_EXTENSIONS = new Set([
+  'exe', 'dll', 'sys', 'bat', 'cmd', 'ps1', 'sh', 'py', 'pl', 'rb',
+  'ts', 'jsx', 'tsx', 'mjs', 'cjs',
+  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2',
+  'iso', 'img', 'vmdk', 'ova',
+  'lnk', 'cpl', 'msi', 'msc', 'msp',
+  'bin', 'dat', 'war', 'ear', 'jar',
+  'log', 'yaml', 'yml', 'csv',
+  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', 'webp',
+  'mp3', 'mp4', 'wav', 'avi', 'mov', 'mkv',
+  'htm', 'css', 'scss', 'sass',
+  'aspx', 'jsp',
+  'sqlite', 'sqlite3', 'bak',
+  'hpp', 'dylib',
+  'config', 'conf', 'ini', 'env',
+  'lock',
+  // Ambiguous TLDs that are more commonly seen as filename extensions in threat intel
+  'md', 'json', 'xml', 'yml', 'yaml', 'toml', 'ini', 'cfg',
+]);
+
+// Valid TLDs — keep this conservative. Anything else in the last label is suspicious.
+const VALID_TLDS = new Set([
+  'com', 'net', 'org', 'edu', 'gov', 'mil', 'int',
+  'io', 'co', 'ai', 'app', 'dev', 'xyz', 'info', 'biz',
+  'us', 'uk', 'de', 'fr', 'it', 'es', 'nl', 'be', 'at', 'ch', 'pl', 'ru', 'cn', 'jp', 'kr', 'in', 'br', 'mx', 'ca', 'au', 'nz',
+  'tv', 'me', 'site', 'online', 'tech', 'store', 'blog', 'cloud', 'live', 'page',
+  'top', 'vip', 'win', 'loan', 'click', 'review', 'country', 'science', 'party', 'gq', 'tk', 'cf', 'ml',
+  'cyou', 'mom', 'icu', 'rest', 'bond', 'sbs', 'quest', 'cam', 'stream',
+  'tk', 'ga', 'cf', 'ml', 'gq',
+  'news', 'wiki', 'lol', 'wtf', 'ooo', 'art', 'pro', 'name', 'mobi', 'asia', 'tel',
+  'sh', 'rs', 'gg', 'vc', 'bz', 'to', 'im', 'fm', 'am', 'la', 'sx', 'tc', 'pw', 'ws', 'tk', 'ms', 'cc', 'su',
+  'nu', 'st', 're', 'tf', 'wf', 'yt', 'pm', 'gl', 'gp', 'mq', 're', 'yt', 'pm', 'nf', 'pn',
+  'si', 'hr', 'sk', 'cz', 'ro', 'hu', 'bg', 'gr', 'lt', 'lv', 'ee', 'is', 'fo', 'md', 'ua', 'by',
+  'ae', 'sa', 'il', 'tr', 'eg', 'ng', 'ke', 'za', 'ma', 'tn', 'dz', 've', 'ar', 'cl', 'co', 'pe', 'ec',
+  'ph', 'my', 'sg', 'hk', 'tw', 'th', 'vn', 'id', 'pk', 'bd', 'lk', 'np', 'mm', 'kh', 'la', 'mn',
+  'md', 'cu', 'do', 'jm', 'gt', 'hn', 'ni', 'cr', 'pa', 'cu', 'do',
+  'cz', 'sk', 'si', 'hr', 'rs', 'ba', 'mk', 'al', 'me', 'xk',
+]);
+
+function looksLikeFilenameOrCode(d: string): boolean {
+  const last = d.split('.').pop()!;
+  return FILE_EXTENSIONS.has(last.toLowerCase());
+}
+
+function hasValidTld(d: string): boolean {
+  const last = d.split('.').pop()!.toLowerCase();
+  return VALID_TLDS.has(last);
+}
+
 function isBadDomain(d: string): boolean {
-  if (/^[0-9]+x[0-9]+$/.test(d)) return true;
+  if (looksLikeFilenameOrCode(d)) return true;       // cmd.exe, fondue.exe, bcrypt.dll, etc.
+  if (!hasValidTld(d)) return true;                  // node.js, http.sys, console.log, json.stringify, etc.
+  if (/^[0-9]+x[0-9]+$/.test(d)) return true;        // 1920x1080
   return false;
 }
 
@@ -45,6 +111,7 @@ export function extractIOCs(text: string): ExtractedIOC[] {
 
   for (const m of text.matchAll(REGEX.ipv4)) {
     if (isIPv4Private(m[0])) continue;
+    if (isVersionContext(m[0], text)) continue;
     const k = `c2_ip|${m[0]}`;
     if (seen.has(k)) continue;
     seen.add(k);
