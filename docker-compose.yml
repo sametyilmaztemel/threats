@@ -91,6 +91,7 @@ services:
       - ./collector/link-actors.ts:/app/link-actors.ts:ro
       - ./collector/generate-report.ts:/app/generate-report.ts:ro
       - ./collector/alert-webhook.ts:/app/alert-webhook.ts:ro
+      - ./collector/enrich-epss-kev.ts:/app/enrich-epss-kev.ts:ro
       - ./reports:/app/reports
     mem_limit: 256m
     depends_on:

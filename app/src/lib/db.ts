@@ -198,7 +198,7 @@ export async function getCVEs(limit = 100) {
   return rows;
 }
 
-export async function getCVEList(page = 1, pageSize = 50, search?: string, minCvss?: number, vendor?: string) {
+export async function getCVEList(page = 1, pageSize = 50, search?: string, minCvss?: number, vendor?: string, sortBy?: string) {
   const offset = (page - 1) * pageSize;
   const conds: string[] = [];
   const params: any[] = [pageSize, offset];
@@ -220,16 +220,22 @@ export async function getCVEList(page = 1, pageSize = 50, search?: string, minCv
     pIdx++;
   }
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+  // sortBy: 'risk' (EPSS*CVSS combo) | 'cvss' (default) | 'kev' (KEV önce)
+  const orderBy = sortBy === 'risk'
+    ? `ORDER BY COALESCE(ce.epss,0) * COALESCE(ce.cvss_v3,0) DESC, ce.cve_id`
+    : sortBy === 'kev'
+      ? `ORDER BY ce.in_kev DESC, ce.cvss_v3 DESC NULLS LAST, ce.cve_id`
+      : `ORDER BY ce.cvss_v3 DESC NULLS LAST, ce.cve_id`;
 
   const { rows } = await query<any>(
-    `SELECT ce.cve_id, ce.cvss_v3, ce.description, ce.vendor, ce.product, ce.published_date, ce.last_enriched_at,
+    `SELECT ce.cve_id, ce.cvss_v3, ce.epss, ce.in_kev, ce.description, ce.vendor, ce.product, ce.published_date, ce.last_enriched_at,
             (SELECT COUNT(*) FROM document_cves dc WHERE dc.cve_id = ce.cve_id) as mentions,
             (SELECT COUNT(*) FROM document_cves dc WHERE dc.cve_id = ce.cve_id AND EXISTS (
               SELECT 1 FROM documents d2 WHERE d2.id = dc.document_id AND d2.ai_threat
             )) as ai_mentions
      FROM cve_enrichment ce
      ${where}
-     ORDER BY ce.cvss_v3 DESC NULLS LAST, ce.cve_id
+     ${orderBy}
      LIMIT $1 OFFSET $2`,
     params
   );

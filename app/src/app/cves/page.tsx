@@ -28,16 +28,17 @@ function cvssLabel(score: number | null): string {
   return 'LOW';
 }
 
-export default async function CVEsPage({ searchParams }: { searchParams: { q?: string; sev?: string; vendor?: string; page?: string } }) {
+export default async function CVEsPage({ searchParams }: { searchParams: { q?: string; sev?: string; vendor?: string; sort?: string; page?: string } }) {
   const page = Math.max(1, parseInt(searchParams.page || '1') || 1);
   const q = searchParams.q || '';
   const sev = searchParams.sev || '';
   const vendor = searchParams.vendor || '';
+  const sort = searchParams.sort || '';
   // sev: critical=9, high=7, medium=4, low=1
   const sevMap: Record<string, number> = { critical: 9, high: 7, medium: 4, low: 1 };
   const minCvss = sevMap[sev] ?? undefined;
   const [cves, total] = await Promise.all([
-    getCVEList(page, PAGE_SIZE, q, minCvss, vendor),
+    getCVEList(page, PAGE_SIZE, q, minCvss, vendor, sort),
     getCVECount(q, minCvss, vendor),
   ]);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -51,6 +52,7 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
     if (q) p.set('q', q);
     if (sev) p.set('sev', sev);
     if (vendor) p.set('vendor', vendor);
+    if (sort) p.set('sort', sort);
     for (const [k, v] of Object.entries(extra)) if (v) p.set(k, v);
     const s = p.toString();
     return s ? `?${s}` : '';
@@ -104,10 +106,19 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
             placeholder="Vendor…"
             className="w-36 bg-transparent border border-line px-3 py-2 text-[12px] font-mono outline-none placeholder:text-dim/50"
           />
+          <select
+            name="sort"
+            defaultValue={sort}
+            className="bg-bg border border-line px-3 py-2 text-[12px] font-mono outline-none text-dim"
+          >
+            <option value="">SORT: CVSS</option>
+            <option value="risk">RISK (EPSS×CVSS)</option>
+            <option value="kev">CISA KEV FIRST</option>
+          </select>
           <button type="submit" className="px-4 py-2 text-[10px] tracking-widest2 border border-[#00d97e] text-[#00d97e] hover:bg-[#00d97e] hover:text-bg transition-colors">
             FILTER
           </button>
-          {(q || sev || vendor) && (
+          {(q || sev || vendor || sort) && (
             <a href="/cves" className="px-3 py-2 text-[10px] tracking-widest2 text-dim hover:text-fg border border-line transition-colors">
               RESET
             </a>
@@ -125,6 +136,8 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
               <th className="text-left px-3 py-2 font-normal">SEVERITY</th>
               <th className="text-left px-3 py-2 font-normal hidden sm:table-cell">VENDOR / PRODUCT</th>
               <th className="text-left px-3 py-2 font-normal hidden md:table-cell">DESCRIPTION</th>
+              <th className="text-right px-3 py-2 font-normal hidden sm:table-cell">EPSS</th>
+              <th className="text-right px-3 py-2 font-normal hidden sm:table-cell">KEV</th>
               <th className="text-right px-3 py-2 font-normal hidden sm:table-cell">MENTIONS</th>
               <th className="text-right px-3 py-2 font-normal hidden lg:table-cell">PUBLISHED</th>
             </tr>
@@ -154,6 +167,12 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
                 </td>
                 <td className="px-3 py-2 text-dim hidden md:table-cell max-w-[340px] truncate">
                   {c.description?.slice(0, 120) || '—'}
+                </td>
+                <td className="px-3 py-2 text-right font-mono hidden sm:table-cell">
+                  {c.epss != null ? <span style={{ color: c.epss >= 0.5 ? '#ff5c5c' : c.epss >= 0.1 ? '#ffd60a' : '#00d97e' }}>{(c.epss * 100).toFixed(1)}%</span> : '—'}
+                </td>
+                <td className="px-3 py-2 text-right hidden sm:table-cell">
+                  {c.in_kev ? <span className="text-[#ff3030] font-mono text-[10px] tracking-widest">KEV</span> : <span className="text-dim/40">—</span>}
                 </td>
                 <td className="px-3 py-2 text-right font-mono hidden sm:table-cell">
                   {c.mentions}

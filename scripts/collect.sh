@@ -60,4 +60,8 @@ cd /app/collector
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Kritik olay alert kontrolü..."
 cd /app && npx tsx alert-webhook.ts || echo "alert hata (devam)"
 cd /app/collector
+
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] EPSS + CISA KEV enrichment..."
+cd /app && npx tsx enrich-epss-kev.ts >> /tmp/epss-kev.log 2>&1 || echo "epss-kev hata (devam)"
+cd /app/collector
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Backfill tamam."
