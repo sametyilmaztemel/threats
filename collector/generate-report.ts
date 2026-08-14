@@ -94,6 +94,53 @@ async function main() {
     doc.moveDown(1.2);
   }
 
+  // Bar chart: son 7 gün doküman akışı (saf rect)
+  const daily = (await pool.query(
+    `SELECT date_trunc('day', COALESCE(d.published_at, d.fetched_at))::date as day,
+            COUNT(*)::int as n
+     FROM documents d
+     WHERE COALESCE(d.published_at, d.fetched_at) >= NOW() - interval '7 days'
+     GROUP BY day ORDER BY day`
+  )).rows;
+  if (daily.length > 0) {
+    doc.fontSize(10).fillColor('#000').text(`Document Flow (${days}d window shown: 7d)`, { underline: true });
+    doc.moveDown(0.6);
+    const chartW = 495, chartH = 110, baseY = doc.y + chartH;
+    const maxN = Math.max(...daily.map((r: any) => r.n), 1);
+    const barW = chartW / daily.length - 6;
+    doc.fontSize(7).fillColor('#666');
+    daily.forEach((r: any, i: number) => {
+      const h = Math.max(2, (r.n / maxN) * chartH);
+      const x = doc.page.margins.left + 40 + i * (barW + 6);
+      doc.rect(x, baseY - h, barW, h).fill('#1a1a1a');
+      doc.fillColor('#333').text(String(r.n), x, baseY - h - 10, { width: barW, align: 'center' });
+      doc.fillColor('#666').text(String(r.day).slice(5), x, baseY + 3, { width: barW, align: 'center' });
+      doc.fillColor('#1a1a1a');
+    });
+    doc.moveDown(4);
+  }
+
+  // Kill chain dağılımı (saf rect bars)
+  const kc = (await pool.query(
+    `SELECT COALESCE(kill_chain_phase, 'unassigned') as phase, COUNT(*)::int as n
+     FROM documents WHERE fetched_at > NOW() - ($1 || ' days')::interval
+     GROUP BY phase ORDER BY n DESC LIMIT 7`, [days]
+  )).rows;
+  if (kc.length > 0) {
+    doc.fontSize(10).fillColor('#000').text('Kill Chain Distribution', { underline: true });
+    doc.moveDown(0.6);
+    const maxK = Math.max(...kc.map((r: any) => r.n), 1);
+    kc.forEach((r: any) => {
+      const w = Math.max(10, (r.n / maxK) * 300);
+      doc.fontSize(8).fillColor('#333').text(String(r.phase).toUpperCase().padEnd(14), doc.page.margins.left, doc.y + 2);
+      doc.rect(doc.page.margins.left + 100, doc.y - 2, w, 10).fill('#d4af37');
+      doc.fillColor('#666').text(String(r.n), doc.page.margins.left + 110 + w, doc.y - 2, { width: 40 });
+      doc.fillColor('#1a1a1a');
+      doc.moveDown(0.8);
+    });
+    doc.moveDown(1.5);
+  }
+
   doc.fontSize(7).fillColor('#999').text('All data aggregated from public sources. TLP:GREEN.', { align: 'center' });
   doc.end();
   await done;
