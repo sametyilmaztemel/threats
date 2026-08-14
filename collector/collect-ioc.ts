@@ -153,7 +153,7 @@ async function ingestURLhaus(source: any): Promise<NormalizedIOC[]> {
     out.push({
       value: url,
       type: 'malicious_url',
-      first_seen: null,
+      first_seen: null, // DB'de COALESCE(first_seen, created_at::date) ile doldurulur
       last_seen: null,
       confidence: 0.8,
       tags: tags ? tags.split(',').map(s => s.trim()).filter(Boolean) : [],
@@ -241,7 +241,7 @@ async function writeIOCs(iocs: NormalizedIOC[], sourceId: number): Promise<numbe
     try {
       await pool.query(
         `INSERT INTO iocs (value, type, first_seen, last_seen, document_id, source_id, confidence, tags, ai_related, meta)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         VALUES ($1, $2, COALESCE($3, CURRENT_DATE), COALESCE($4, CURRENT_DATE), $5, $6, $7, $8, $9, $10)
          ON CONFLICT (value, type, document_id) DO NOTHING`,
         [
           i.value,

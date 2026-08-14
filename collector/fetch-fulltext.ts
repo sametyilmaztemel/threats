@@ -54,6 +54,7 @@ function extractMain(html: string): string {
 
 async function main() {
   // Tam metin çekilecek adaylar: kısa içerik + http(s) url + kaynak enabled
+  // (30 gün filtresi kaldırıldı — eski dokümanlar da fulltext kazansın)
   const { rows } = await pool.query<any>(
     `SELECT d.id, d.url, d.title, d.summary
      FROM documents d
@@ -61,7 +62,6 @@ async function main() {
      WHERE s.enabled = true
        AND (d.word_count IS NULL OR d.word_count < 200)
        AND d.url IS NOT NULL AND d.url LIKE 'http%'
-       AND d.fetched_at > NOW() - interval '30 days'
      ORDER BY d.fetched_at DESC
      LIMIT ${MAX_DOCS}`
   );

@@ -4,8 +4,13 @@ import Breadcrumb from '@/components/layout/Breadcrumb';
 import TLPBadge from '@/components/ui/TLPBadge';
 import SeverityGauge from '@/components/ui/SeverityGauge';
 import { format } from '@/lib/format';
+import type { Metadata } from 'next';
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata({ params }: { params: { name: string } }): Promise<Metadata> {
+  return { title: `Sector: ${decodeURIComponent(params.name).toUpperCase()}` };
+}
 
 const SECTOR_COLORS: Record<string, string> = {
   finance: '#00d97e', healthcare: '#ff3860', government: '#ffd60a',

@@ -56,7 +56,8 @@ export default async function IOCsPage({ searchParams }: { searchParams: { type?
       </div>
 
       <div className="border border-line overflow-x-auto">
-        <div className="grid grid-cols-12 text-[10px] tracking-widest2 text-dim border-b border-line bg-panel min-w-[800px]">
+        {/* Desktop header — hidden on mobile */}
+        <div className="hidden md:grid grid-cols-12 text-[10px] tracking-widest2 text-dim border-b border-line bg-panel min-w-[800px]">
           <div className="col-span-6 p-3 md:p-4">VALUE</div>
           <div className="col-span-2 p-3 md:p-4">TYPE</div>
           <div className="col-span-2 p-3 md:p-4">SOURCE</div>
@@ -68,12 +69,12 @@ export default async function IOCsPage({ searchParams }: { searchParams: { type?
           <Link
             key={i.id}
             href={`/ioc/${i.id}`}
-            className="grid grid-cols-12 text-[12px] border-b border-line hover:bg-panel transition-colors min-w-[800px]"
+            className="grid grid-cols-1 md:grid-cols-12 gap-1 md:gap-0 text-[12px] border-b border-line hover:bg-panel transition-colors min-w-[800px] md:min-w-0"
           >
-            <div className="col-span-6 p-3 md:p-4 font-mono truncate">{i.value}</div>
-            <div className="col-span-2 p-3 md:p-4 text-dim text-[10px] tracking-widest2">{i.type.toUpperCase().replace('_', ' ')}</div>
-            <div className="col-span-2 p-3 md:p-4 text-dim text-[10px] truncate">{i.source_name || '—'}</div>
-            <div className="col-span-2 p-3 md:p-4 text-right text-dim text-[10px]">{relativeTime(i.first_seen)}</div>
+            <div className="col-span-1 md:col-span-6 p-2 md:p-4 font-mono truncate md:border-r md:border-line/50">{i.value}</div>
+            <div className="col-span-1 md:col-span-2 px-2 md:px-4 py-0.5 md:py-4 text-dim text-[10px] tracking-widest2">{i.type.toUpperCase().replace('_', ' ')}</div>
+            <div className="col-span-1 md:col-span-2 px-2 md:px-4 py-0.5 md:py-4 text-dim text-[10px] truncate">{i.source_name || '—'}</div>
+            <div className="col-span-1 md:col-span-2 px-2 md:px-4 py-0.5 md:py-4 text-right text-dim text-[10px]">{relativeTime(i.first_seen)}</div>
           </Link>
         ))}
       </div>

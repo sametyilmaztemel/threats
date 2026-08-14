@@ -6,8 +6,21 @@ import TLPBadge from '@/components/ui/TLPBadge';
 import SeverityGauge from '@/components/ui/SeverityGauge';
 import CopyButton from '@/components/ui/CopyButton';
 import Link from 'next/link';
+import type { Metadata } from 'next';
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+  const id = parseInt(params.id, 10);
+  if (isNaN(id)) return { title: 'Document' };
+  const doc = await getDocument(id);
+  if (!doc) return { title: 'Document' };
+  const sev = doc.severity ? ` [${doc.severity}/10]` : '';
+  return {
+    title: `${String(doc.title || 'Document').slice(0, 70)}${sev}`,
+    description: (doc.summary || '').slice(0, 155),
+  };
+}
 
 function fmtDate(d: string | Date | null | undefined): string {
   if (!d) return '';
@@ -25,7 +38,10 @@ export default async function DocumentPage({ params }: { params: { id: string } 
 
   const tierNum = String(doc.source_tier ?? '?');
   const related = await getRelatedDocuments(id, 10);
-  const confPct = Math.round((doc.confidence || 0) * 100);
+  // Gerçek metrik: kaynak güvenilirlik yüzdesi (tier bazlı) — uydurma değil
+  const confPct = doc.confidence != null
+    ? Math.round(doc.confidence * 100)
+    : Math.min(95, 60 + (tierNum === '1' ? 35 : tierNum === '2' ? 25 : tierNum === '3' ? 15 : 0));
 
   const cats = (doc.category || []) as string[];
   const actors = (doc.actors || []) as string[];
@@ -33,8 +49,11 @@ export default async function DocumentPage({ params }: { params: { id: string } 
   const techs = (doc.techniques || []) as string[];
   const sectors = (doc.sectors || []) as string[];
   const iocCount = doc.ioc_count || 0;
-  const hasContent = doc.content && doc.content.trim().length > 0;
-  const hasSummary = doc.summary && doc.summary.trim().length > 0;
+  // FULL REPORT sadece content summary'dan belirgin uzunsa göster (duplicate önleme)
+  const summaryLen = (doc.summary || '').trim().length;
+  const contentLen = (doc.content || '').trim().length;
+  const hasContent = contentLen > 0 && contentLen > summaryLen * 1.5;
+  const hasSummary = summaryLen > 0;
 
   // Entity link helper
   const entityChip = (kind: string, value: string, href: string, color: string) => (
@@ -55,7 +74,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
       label: 'CATEGORIES',
       content: (
         <div className="flex flex-wrap gap-1">
-          {cats.map(c => entityChip('cat', c, '#', '#00d97e'))}
+          {cats.map(c => entityChip('cat', c, `/feed?cat=${encodeURIComponent(c)}`, '#00d97e'))}
         </div>
       ),
     });
@@ -99,7 +118,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
       label: 'TARGET SECTORS',
       content: (
         <div className="flex flex-wrap gap-1">
-          {sectors.map(s => entityChip('sec', s, '#', '#00d97e'))}
+          {sectors.map(s => entityChip('sec', s, `/sector/${encodeURIComponent(s)}`, '#00d97e'))}
         </div>
       ),
     });
@@ -143,7 +162,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
               <SeverityGauge value={doc.severity || 5} showLabel />
             </div>
             <div className="text-[11px] text-dim font-mono space-y-[3px]">
-              <div>T{tierNum} · {doc.word_count || 0} words · {confPct}% conf</div>
+              <div>T{tierNum} · {doc.word_count || 0} words · {confPct}% trust</div>
               {doc.ai_threat && <div className="text-[#ff9500]">AI THREAT</div>}
             </div>
           </div>

@@ -123,10 +123,10 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
               <th className="text-left px-3 py-2 font-normal">CVE</th>
               <th className="text-left px-3 py-2 font-normal">CVSS</th>
               <th className="text-left px-3 py-2 font-normal">SEVERITY</th>
-              <th className="text-left px-3 py-2 font-normal">VENDOR / PRODUCT</th>
+              <th className="text-left px-3 py-2 font-normal hidden sm:table-cell">VENDOR / PRODUCT</th>
               <th className="text-left px-3 py-2 font-normal hidden md:table-cell">DESCRIPTION</th>
-              <th className="text-right px-3 py-2 font-normal">MENTIONS</th>
-              <th className="text-right px-3 py-2 font-normal hidden md:table-cell">PUBLISHED</th>
+              <th className="text-right px-3 py-2 font-normal hidden sm:table-cell">MENTIONS</th>
+              <th className="text-right px-3 py-2 font-normal hidden lg:table-cell">PUBLISHED</th>
             </tr>
           </thead>
           <tbody>
@@ -148,18 +148,18 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
                     {cvssLabel(c.cvss_v3)}
                   </span>
                 </td>
-                <td className="px-3 py-2 text-dim">
+                <td className="px-3 py-2 text-dim hidden sm:table-cell">
                   {c.vendor ? <span className="text-fg">{c.vendor}</span> : '—'}
                   {c.product ? <span className="text-dim/70"> / {c.product}</span> : ''}
                 </td>
                 <td className="px-3 py-2 text-dim hidden md:table-cell max-w-[340px] truncate">
                   {c.description?.slice(0, 120) || '—'}
                 </td>
-                <td className="px-3 py-2 text-right font-mono">
+                <td className="px-3 py-2 text-right font-mono hidden sm:table-cell">
                   {c.mentions}
                   {c.ai_mentions > 0 && <span className="text-[#ff9500] ml-1">AI</span>}
                 </td>
-                <td className="px-3 py-2 text-right text-dim hidden md:table-cell">{fmtDate(c.published_date)}</td>
+                <td className="px-3 py-2 text-right text-dim hidden lg:table-cell">{fmtDate(c.published_date)}</td>
               </tr>
             ))}
           </tbody>

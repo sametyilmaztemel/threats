@@ -243,13 +243,13 @@ async function main() {
   // ── G. Kill chain phase atama (deterministik keyword eşleştirme) ──
   log('G. Kill chain phase atama...');
   const KILLCHAIN: [string, string[]][] = [
-    ['recon', ['recon', 'scan', 'fingerprint', 'discovery', 'probe', 'osint']],
-    ['weaponize', ['weaponiz', 'malware develop', 'payload', 'exploit kit', 'doc weapon']],
-    ['deliver', ['phishing', 'spam', 'malicious link', 'drive-by', 'watering hole', 'malvertising']],
-    ['exploit', ['exploit', 'cve-', 'rce', 'vulnerability', 'zero-day', 'zeroday', 'remote code']],
-    ['install', ['install', 'persistence', 'backdoor', 'implant', 'dropper', 'loader', 'webshell']],
-    ['c2', ['c2', 'command and control', 'command-and-control', 'botnet', 'beacon']],
-    ['actions', ['exfiltrat', 'data theft', 'ransomware', 'encrypt', 'lateral movement', 'data leak', 'destroy']],
+    ['recon', ['recon', 'scan', 'fingerprint', 'discovery', 'probe', 'osint', 'keşif', 'tarama', 'istihbarat']],
+    ['weaponize', ['weaponiz', 'malware develop', 'payload', 'exploit kit', 'doc weapon', 'zararlı yazılım', 'silahlandır']],
+    ['deliver', ['phishing', 'spam', 'malicious link', 'drive-by', 'watering hole', 'malvertising', 'oltalama', 'kimlik avı']],
+    ['exploit', ['exploit', 'cve-', 'rce', 'vulnerability', 'zero-day', 'zeroday', 'remote code', 'açıklık', 'istismar', 'güvenlik açığı']],
+    ['install', ['install', 'persistence', 'backdoor', 'implant', 'dropper', 'loader', 'webshell', 'arka kapı', 'kalıcılık']],
+    ['c2', ['c2', 'command and control', 'command-and-control', 'botnet', 'beacon', 'komuta kontrol']],
+    ['actions', ['exfiltrat', 'data theft', 'ransomware', 'encrypt', 'lateral movement', 'data leak', 'destroy', 'fidye', 'vergi sızıntısı', 'veri sızıntısı', 'şifrele']],
   ];
   let kcUpdated = 0;
   const { rows: kcDocs } = await pool.query<any>(`SELECT id, title, COALESCE(content,'') as content FROM documents WHERE kill_chain_phase IS NULL OR kill_chain_phase=''`);

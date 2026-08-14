@@ -6,8 +6,19 @@ import EmptyState from '@/components/ui/EmptyState';
 import SeverityGauge from '@/components/ui/SeverityGauge';
 import CopyButton from '@/components/ui/CopyButton';
 import { format } from '@/lib/format';
+import type { Metadata } from 'next';
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+  const { rows } = await query<any>(`SELECT cve_id, cvss_v3, description FROM cve_enrichment WHERE cve_id=$1`, [params.id]);
+  if (!rows[0]) return { title: 'CVE' };
+  const c = rows[0];
+  return {
+    title: `${c.cve_id}${c.cvss_v3 !== null ? ` (CVSS ${c.cvss_v3})` : ''}`,
+    description: (c.description || '').slice(0, 155),
+  };
+}
 
 export default async function CVEPage({ params }: { params: { id: string } }) {
   const cveId = decodeURIComponent(params.id).toUpperCase();

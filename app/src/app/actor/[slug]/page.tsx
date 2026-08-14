@@ -6,8 +6,14 @@ import EmptyState from '@/components/ui/EmptyState';
 import TLPBadge from '@/components/ui/TLPBadge';
 import SeverityGauge from '@/components/ui/SeverityGauge';
 import { format } from '@/lib/format';
+import type { Metadata } from 'next';
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  const name = params.slug.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+  return { title: `Actor: ${name}` };
+}
 
 export default async function ActorPage({ params }: { params: { slug: string } }) {
   // slug is the actor name slugified

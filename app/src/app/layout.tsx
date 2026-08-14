@@ -3,7 +3,10 @@ import './globals.css';
 import Nav from '@/components/Nav';
 
 export const metadata: Metadata = {
-  title: 'threats.0rce.com — Threat Intelligence',
+  title: {
+    default: 'threats.0rce.com — Threat Intelligence',
+    template: '%s | threats.0rce.com',
+  },
   description: 'Aggregated cyber threat intelligence. Real-time vulnerabilities, IOCs, threat actors, and AI-specific attacks.',
   robots: 'noindex, nofollow'
 };
