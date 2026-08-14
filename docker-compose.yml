@@ -11,6 +11,8 @@ services:
       POSTGRES_DB: threats
     volumes:
       - ./db/postgres-data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d:ro
+    mem_limit: 256m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U threats -d threats"]
       interval: 10s
@@ -26,6 +28,7 @@ services:
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - ./db/redis-data:/data
+    mem_limit: 256m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -35,26 +38,54 @@ services:
       - threats-net
 
   app:
-    image: node:20-alpine
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    image: threats-app:latest
     container_name: threats-app
     restart: unless-stopped
-    working_dir: /app
-    command: node server.js
     environment:
-      DATABASE_URL: postgresql://threats:$${POSTGRES_PASSWORD:-changeme}@postgres:5432/threats
+      DATABASE_URL: postgresql://threats:${POSTGRES_PASSWORD}@postgres:5432/threats
       REDIS_URL: redis://redis:6379
       NODE_ENV: production
       PORT: 3000
       HOSTNAME: 0.0.0.0
-    volumes:
-      - ./app-runtime:/app
-      - ./app/src/lib/db.ts:/app/src/lib/db.ts:ro
     ports:
-      - "27100:3000"
+      - "127.0.0.1:27100:3000"
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+    networks:
+      - threats-net
+
+  worker:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    image: threats-app:latest
+    container_name: threats-worker
+    restart: unless-stopped
+    command: sh -c "while true; do sh /scripts/collect.sh; sleep 21600; done"
+    environment:
+      DATABASE_URL: postgresql://threats:${POSTGRES_PASSWORD}@postgres:5432/threats
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+    volumes:
+      - ./collector:/app/collector:ro
+      - ./scripts:/scripts:ro
+      - ./app/node_modules:/app/node_modules:ro
+    mem_limit: 256m
+    depends_on:
+      postgres:
         condition: service_healthy
     networks:
       - threats-net

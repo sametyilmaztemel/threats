@@ -1,0 +1,39 @@
+{
+  "name": "threats-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "collect": "node dist/collector.js",
+    "collect:rss": "tsx ../collector/collect-rss.ts",
+    "collect:ioc": "tsx ../collector/collect-ioc.ts",
+    "collect:cve": "tsx ../collector/collect-cve.ts 2>/dev/null || echo \"collect-cve yok (opsiyonel)\"",
+    "collect:all": "npm run collect:rss && npm run collect:ioc"
+  },
+  "dependencies": {
+    "date-fns": "3.6.0",
+    "dotenv": "^16.4.5",
+    "fast-xml-parser": "4.5.0",
+    "ioredis": "5.4.1",
+    "next": "^14.2.35",
+    "node-fetch": "3.3.2",
+    "pg": "8.13.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "rss-parser": "3.13.0",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.16.5",
+    "@types/pg": "8.11.10",
+    "@types/react": "18.3.5",
+    "@types/react-dom": "18.3.0",
+    "autoprefixer": "10.4.20",
+    "postcss": "8.4.47",
+    "tailwindcss": "3.4.13",
+    "typescript": "5.5.4"
+  }
+}
