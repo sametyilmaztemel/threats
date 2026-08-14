@@ -228,6 +228,18 @@ async function main() {
   await pool.query(`UPDATE documents SET summary = title, content = COALESCE(NULLIF(content,''), title) WHERE (summary IS NULL OR summary='') AND title IS NOT NULL`);
   await pool.query(`DELETE FROM documents d USING documents d2 WHERE d.id > d2.id AND d.title = d2.title`);
 
+  // CVE ID normalizasyonu: küçük harfli CVE'leri büyük harfe çevir
+  // (önce büyük harfli kardeşi olan satırları sil — UNIQUE constraint çakışmasını önle)
+  await pool.query(`
+    DELETE FROM document_cves dc USING document_cves dc2
+    WHERE dc.cve_id != UPPER(dc.cve_id) AND dc.document_id = dc2.document_id AND dc2.cve_id = UPPER(dc.cve_id)
+  `);
+  await pool.query(`UPDATE document_cves SET cve_id = UPPER(cve_id) WHERE cve_id != UPPER(cve_id)`);
+  await pool.query(`
+    UPDATE documents SET cves = (SELECT ARRAY_AGG(DISTINCT UPPER(c)) FROM unnest(cves) c)
+    WHERE EXISTS (SELECT 1 FROM unnest(cves) c WHERE c != UPPER(c))
+  `);
+
   // ── G. Kill chain phase atama (deterministik keyword eşleştirme) ──
   log('G. Kill chain phase atama...');
   const KILLCHAIN: [string, string[]][] = [
