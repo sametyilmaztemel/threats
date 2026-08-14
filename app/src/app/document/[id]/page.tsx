@@ -113,9 +113,21 @@ export default async function DocumentPage({ params }: { params: { id: string } 
   }
 
   if (doc.kill_chain_phase) {
+    const kcColors: Record<string, string> = {
+      reconnaissance: '#00d97e', weaponization: '#ffd60a', delivery: '#ff9500',
+      exploitation: '#ff3030', installation: '#ff5c5c', c2: '#a05cff',
+      'actions-on-objectives': '#ff3860',
+    };
     sidebarSections.push({
       label: 'KILL CHAIN',
-      content: <div className="text-[13px] font-mono">{String(doc.kill_chain_phase).toUpperCase()}</div>,
+      content: (
+        <div
+          className="text-[13px] font-mono"
+          style={{ color: kcColors[String(doc.kill_chain_phase)] || '#888' }}
+        >
+          {String(doc.kill_chain_phase).toUpperCase()}
+        </div>
+      ),
     });
   }
 
@@ -192,6 +204,16 @@ export default async function DocumentPage({ params }: { params: { id: string } 
               <div className="text-[10px] tracking-widest2 text-dim mb-2">SUMMARY</div>
               <div className="text-[13px] md:text-[14px] leading-[1.7] text-fg">
                 {doc.summary}
+              </div>
+            </div>
+          )}
+
+          {/* AI Summary */}
+          {doc.ai_summary && doc.ai_summary.trim().length > 0 && (
+            <div className="mb-6 md:mb-8">
+              <div className="text-[10px] tracking-widest2 text-dim mb-2">AI SUMMARY</div>
+              <div className="text-[13px] md:text-[14px] leading-[1.7] text-fg border-l-2 border-[#00d97e] pl-4">
+                {doc.ai_summary}
               </div>
             </div>
           )}
