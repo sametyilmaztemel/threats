@@ -177,27 +177,37 @@ async function main() {
   let cveEnriched = 0;
   for (const row of cveRows) {
     const cveId = row.cve_id;
-    try {
-      const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=${encodeURIComponent(cveId)}`;
-      const resp = await fetch(url, { headers: { 'User-Agent': 'threats.0rce.com/1.0' } });
-      if (!resp.ok) { continue; }
-      const data: any = await resp.json();
-      const vuln = data?.vulnerabilities?.[0]?.cve;
-      if (!vuln) continue;
-      const metrics = vuln.metrics?.cvssMetricV31?.[0]?.cvssData || vuln.metrics?.cvssMetricV30?.[0]?.cvssData;
-      const desc = vuln.descriptions?.find((x: any) => x.lang === 'en')?.value || '';
-      const cpes = vuln.configurations?.[0]?.nodes?.[0]?.cpeMatch || [];
-      const vendor = cpes[0]?.criteria?.split(':')[3] || '';
-      const product = cpes[0]?.criteria?.split(':')[4] || '';
-      await pool.query(
-        `INSERT INTO cve_enrichment (cve_id, cvss_v3, description, vendor, product, published_date, last_enriched_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())
-         ON CONFLICT (cve_id) DO UPDATE SET cvss_v3=$2, description=$3, vendor=$4, product=$5, last_enriched_at=NOW()`,
-        [cveId, metrics?.baseScore ?? null, desc, vendor, product, vuln.published || null]
-      );
-      cveEnriched++;
-    } catch (e) {
-      // rate limit veya ağ hatası — devam
+    let attempts = 0;
+    let ok = false;
+    while (attempts < 3 && !ok) {
+      attempts++;
+      try {
+        const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=${encodeURIComponent(cveId)}`;
+        const resp = await fetch(url, { headers: { 'User-Agent': 'threats.0rce.com/1.0' } });
+        if (resp.status === 403 || resp.status === 429) {
+          await new Promise(r => setTimeout(r, 5000 * attempts)); // rate-limit backoff
+          continue;
+        }
+        if (!resp.ok) { ok = true; continue; } // 404 → CVE NVD'de yok, atla
+        ok = true;
+        const data: any = await resp.json();
+        const vuln = data?.vulnerabilities?.[0]?.cve;
+        if (!vuln) continue;
+        const metrics = vuln.metrics?.cvssMetricV31?.[0]?.cvssData || vuln.metrics?.cvssMetricV30?.[0]?.cvssData;
+        const desc = vuln.descriptions?.find((x: any) => x.lang === 'en')?.value || '';
+        const cpes = vuln.configurations?.[0]?.nodes?.[0]?.cpeMatch || [];
+        const vendor = cpes[0]?.criteria?.split(':')[3] || '';
+        const product = cpes[0]?.criteria?.split(':')[4] || '';
+        await pool.query(
+          `INSERT INTO cve_enrichment (cve_id, cvss_v3, description, vendor, product, published_date, last_enriched_at)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW())
+           ON CONFLICT (cve_id) DO UPDATE SET cvss_v3=$2, description=$3, vendor=$4, product=$5, last_enriched_at=NOW()`,
+          [cveId, metrics?.baseScore ?? null, desc, vendor, product, vuln.published || null]
+        );
+        cveEnriched++;
+      } catch (e) {
+        await new Promise(r => setTimeout(r, 3000 * attempts)); // ağ hatası backoff
+      }
     }
     await new Promise(r => setTimeout(r, 1200)); // NVD rate limit 5 req/s
   }
