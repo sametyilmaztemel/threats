@@ -169,6 +169,43 @@ export async function getCVEs(limit = 100) {
   return rows;
 }
 
+export async function getCVEList(page = 1, pageSize = 50, search?: string) {
+  const offset = (page - 1) * pageSize;
+  const hasSearch = search && search.trim();
+  const where = hasSearch
+    ? `WHERE (ce.cve_id ILIKE $3 OR ce.description ILIKE $3 OR ce.vendor ILIKE $3 OR ce.product ILIKE $3)`
+    : '';
+  const params = hasSearch
+    ? [pageSize, offset, `%${search.trim()}%`]
+    : [pageSize, offset];
+  const { rows } = await query<any>(
+    `SELECT ce.cve_id, ce.cvss_v3, ce.description, ce.vendor, ce.product, ce.published_date, ce.last_enriched_at,
+            (SELECT COUNT(*) FROM document_cves dc WHERE dc.cve_id = ce.cve_id) as mentions,
+            (SELECT COUNT(*) FROM document_cves dc WHERE dc.cve_id = ce.cve_id AND EXISTS (
+              SELECT 1 FROM documents d2 WHERE d2.id = dc.document_id AND d2.ai_threat
+            )) as ai_mentions
+     FROM cve_enrichment ce
+     ${where}
+     ORDER BY ce.cvss_v3 DESC NULLS LAST, ce.cve_id
+     LIMIT $1 OFFSET $2`,
+    params
+  );
+  return rows;
+}
+
+export async function getCVECount(search?: string) {
+  const hasSearch = search && search.trim();
+  const where = hasSearch
+    ? `WHERE (cve_id ILIKE $1 OR description ILIKE $1 OR vendor ILIKE $1 OR product ILIKE $1)`
+    : '';
+  const params = hasSearch ? [`%${search.trim()}%`] : [];
+  const { rows } = await query<any>(
+    `SELECT COUNT(*)::int as total FROM cve_enrichment ce ${where}`,
+    params
+  );
+  return rows[0]?.total || 0;
+}
+
 export async function getGraphData() {
   const actors = await query<any>(
     `SELECT id, name FROM actors ORDER BY name`
