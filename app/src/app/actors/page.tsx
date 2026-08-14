@@ -2,8 +2,12 @@ import { getActors } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ActorsPage() {
-  const actors = await getActors(200);
+const TYPES = ['all', 'apt', 'ransomware-gang', 'financially-motivated', 'hacktivist', 'insider'];
+
+export default async function ActorsPage({ searchParams }: { searchParams: { type?: string } }) {
+  const type = searchParams.type || 'all';
+  const all = await getActors(500);
+  const actors = type === 'all' ? all : all.filter((a: any) => a.type === type);
 
   return (
     <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
@@ -11,6 +15,20 @@ export default async function ActorsPage() {
         <div className="text-[10px] tracking-widest2 text-dim mb-1">/ACTORS</div>
         <h1 className="text-2xl md:text-3xl font-light tracking-wider2">THREAT ACTORS <span className="terminal-cursor" /></h1>
       </div>
+
+      {/* Type filter */}
+      <div className="flex gap-2 mb-4 md:mb-6 text-[11px] tracking-widest2 flex-wrap">
+        {TYPES.map(t => (
+          <a
+            key={t}
+            href={t === 'all' ? '/actors' : `/actors?type=${t}`}
+            className={`px-3 py-1 border ${type === t ? 'border-fg text-fg' : 'border-line text-dim hover:text-fg hover:border-fg'}`}
+          >
+            {t.toUpperCase()}
+          </a>
+        ))}
+      </div>
+
       <div className="border border-line overflow-x-auto">
         <div className="grid grid-cols-12 text-[10px] tracking-widest2 text-dim border-b border-line bg-panel min-w-[700px]">
           <div className="col-span-3 p-3 md:p-4">NAME</div>

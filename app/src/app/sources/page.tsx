@@ -3,15 +3,33 @@ import { relativeTime } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
-export default async function SourcesPage() {
-  const sources = await getSources();
+const CATEGORIES = ['all', 'vendor', 'news', 'official', 'ai', 'ioc', 'ai_research', 'attacker_ips', 'c2_ips', 'ssl_blacklist', 'malicious_urls', 'cve_exploit', 'phishing_urls', 'local'];
+
+export default async function SourcesPage({ searchParams }: { searchParams: { cat?: string } }) {
+  const cat = searchParams.cat || 'all';
+  const all = await getSources();
+  const sources = cat === 'all' ? all : all.filter((s: any) => s.category === cat);
   return (
     <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
       <div className="mb-6 md:mb-8">
         <div className="text-[10px] tracking-widest2 text-dim mb-1">/SOURCES</div>
         <h1 className="text-2xl md:text-3xl font-light tracking-wider2">SOURCES <span className="terminal-cursor" /></h1>
-        <p className="text-xs text-dim mt-2 break-words">{sources.length} configured · {sources.filter(s => s.enabled).length} active</p>
+        <p className="text-xs text-dim mt-2 break-words">{sources.length} shown · {all.filter(s => s.enabled).length} active</p>
       </div>
+
+      {/* Category filter */}
+      <div className="flex gap-2 mb-4 md:mb-6 text-[11px] tracking-widest2 flex-wrap">
+        {CATEGORIES.map(c => (
+          <a
+            key={c}
+            href={c === 'all' ? '/sources' : `/sources?cat=${c}`}
+            className={`px-3 py-1 border ${cat === c ? 'border-fg text-fg' : 'border-line text-dim hover:text-fg hover:border-fg'}`}
+          >
+            {c.toUpperCase()}
+          </a>
+        ))}
+      </div>
+
       <div className="border border-line overflow-x-auto">
         <div className="grid grid-cols-12 text-[10px] tracking-widest2 text-dim border-b border-line bg-panel min-w-[700px]">
           <div className="col-span-1 p-3 md:p-4">T</div>

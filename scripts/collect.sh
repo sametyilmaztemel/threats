@@ -16,6 +16,14 @@ echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] GHSA advisory collector başlıyor...
 cd /app && npx tsx collect-advisories.ts || echo "advisories hata (devam)"
 cd /app/collector
 
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] MITRE ATT&CK STIX collector başlıyor (haftalık)..."
+if [ -f /app/collect-stix.ts ]; then
+  cd /app && npx tsx collect-stix.ts || echo "stix hata (devam)"
+  cd /app/collector
+else
+  echo "collect-stix.ts yok — atlandı"
+fi
+
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] CVE collector başlıyor (varsa)..."
 if [ -f collect-cve.ts ]; then
   npx tsx collect-cve.ts || echo "CVE hata (devam)"
