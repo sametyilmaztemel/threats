@@ -41,6 +41,10 @@ echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] IOC-doküman eşleştirme başlıyor.
 cd /app && npx tsx link-iocs.ts || echo "link-iocs hata (devam)"
 cd /app/collector
 
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Aktör-doküman eşleştirme (aliases) başlıyor..."
+cd /app && npx tsx link-actors.ts || echo "link-actors hata (devam)"
+cd /app/collector
+
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] İçerik backfill başlıyor (aktör/teknik/AI/CVE)..."
 if [ -f /app/content-backfill.ts ]; then
   cd /app && npx tsx content-backfill.ts >> /tmp/content-backfill.log 2>&1 || echo "backfill hata (devam)"

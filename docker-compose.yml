@@ -88,6 +88,7 @@ services:
       - ./collector/collect-stix.ts:/app/collect-stix.ts:ro
       - ./collector/fetch-fulltext.ts:/app/fetch-fulltext.ts:ro
       - ./collector/link-iocs.ts:/app/link-iocs.ts:ro
+      - ./collector/link-actors.ts:/app/link-actors.ts:ro
       - ./collector/generate-report.ts:/app/generate-report.ts:ro
       - ./collector/alert-webhook.ts:/app/alert-webhook.ts:ro
       - ./reports:/app/reports
