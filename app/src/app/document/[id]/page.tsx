@@ -114,9 +114,9 @@ export default async function DocumentPage({ params }: { params: { id: string } 
 
   if (doc.kill_chain_phase) {
     const kcColors: Record<string, string> = {
-      reconnaissance: '#00d97e', weaponization: '#ffd60a', delivery: '#ff9500',
-      exploitation: '#ff3030', installation: '#ff5c5c', c2: '#a05cff',
-      'actions-on-objectives': '#ff3860',
+      recon: '#00d97e', weaponize: '#ffd60a', deliver: '#ff9500',
+      exploit: '#ff3030', install: '#ff5c5c', c2: '#a05cff',
+      actions: '#ff3860',
     };
     sidebarSections.push({
       label: 'KILL CHAIN',

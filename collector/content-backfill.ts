@@ -221,13 +221,13 @@ async function main() {
   // ── G. Kill chain phase atama (deterministik keyword eşleştirme) ──
   log('G. Kill chain phase atama...');
   const KILLCHAIN: [string, string[]][] = [
-    ['reconnaissance', ['recon', 'scan', 'fingerprint', 'discovery', 'probe', 'osint']],
-    ['weaponization', ['weaponiz', 'malware develop', 'payload', 'exploit kit', 'doc weapon']],
-    ['delivery', ['phishing', 'spam', 'malicious link', 'drive-by', 'watering hole', 'malvertising']],
-    ['exploitation', ['exploit', 'cve-', 'rce', 'vulnerability', 'zero-day', 'zeroday', 'remote code']],
-    ['installation', ['install', 'persistence', 'backdoor', 'implant', 'dropper', 'loader', 'webshell']],
+    ['recon', ['recon', 'scan', 'fingerprint', 'discovery', 'probe', 'osint']],
+    ['weaponize', ['weaponiz', 'malware develop', 'payload', 'exploit kit', 'doc weapon']],
+    ['deliver', ['phishing', 'spam', 'malicious link', 'drive-by', 'watering hole', 'malvertising']],
+    ['exploit', ['exploit', 'cve-', 'rce', 'vulnerability', 'zero-day', 'zeroday', 'remote code']],
+    ['install', ['install', 'persistence', 'backdoor', 'implant', 'dropper', 'loader', 'webshell']],
     ['c2', ['c2', 'command and control', 'command-and-control', 'botnet', 'beacon']],
-    ['actions-on-objectives', ['exfiltrat', 'data theft', 'ransomware', 'encrypt', 'lateral movement', 'data leak', 'destroy']],
+    ['actions', ['exfiltrat', 'data theft', 'ransomware', 'encrypt', 'lateral movement', 'data leak', 'destroy']],
   ];
   let kcUpdated = 0;
   const { rows: kcDocs } = await pool.query<any>(`SELECT id, title, COALESCE(content,'') as content FROM documents WHERE kill_chain_phase IS NULL OR kill_chain_phase=''`);

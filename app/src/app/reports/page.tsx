@@ -12,13 +12,13 @@ function fmtDate(d: string | null | undefined): string {
 }
 
 const PHASE_COLORS: Record<string, string> = {
-  reconnaissance: '#00d97e',
-  weaponization: '#ffd60a',
-  delivery: '#ff9500',
-  exploitation: '#ff3030',
-  installation: '#ff5c5c',
+  recon: '#00d97e',
+  weaponize: '#ffd60a',
+  deliver: '#ff9500',
+  exploit: '#ff3030',
+  install: '#ff5c5c',
   c2: '#a05cff',
-  'actions-on-objectives': '#ff3860',
+  actions: '#ff3860',
   unclassified: '#555',
 };
 
