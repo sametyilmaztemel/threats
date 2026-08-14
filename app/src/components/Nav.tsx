@@ -12,7 +12,8 @@ const links = [
   { href: '/graph', label: 'GRAPH' },
   { href: '/trends', label: 'TRENDS' },
   { href: '/ai-threats', label: 'AI' },
-  { href: '/sources', label: 'SOURCES' }
+  { href: '/sources', label: 'SOURCES' },
+  { href: '/stats', label: 'STATS' }
 ];
 
 export default function Nav() {
