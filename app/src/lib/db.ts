@@ -391,6 +391,48 @@ export async function getActorTimeline(name: string, days = 90) {
   return rows;
 }
 
+export async function getSectorTimeline(sector: string, days = 90) {
+  const { rows } = await query<any>(
+    `SELECT date_trunc('day', COALESCE(d.published_at, d.fetched_at))::date as day,
+            COUNT(*)::int as doc_count,
+            COUNT(*) FILTER (WHERE d.severity >= 8)::int as critical
+     FROM documents d
+     WHERE $1 = ANY(d.sectors)
+       AND COALESCE(d.published_at, d.fetched_at) >= NOW() - ($2 || ' days')::interval
+     GROUP BY day ORDER BY day`,
+    [sector, days]
+  );
+  return rows;
+}
+
+export async function getSectorDocs(sector: string, limit = 100) {
+  const { rows } = await query<any>(
+    `SELECT d.id, d.title, d.url, d.severity, d.published_at, d.fetched_at, d.tlp,
+            d.actors, d.cves, d.ai_threat, d.kill_chain_phase,
+            s.name as source_name, s.tier as source_tier
+     FROM documents d
+     LEFT JOIN sources s ON d.source_id = s.id
+     WHERE $1 = ANY(d.sectors)
+     ORDER BY COALESCE(d.published_at, d.fetched_at) DESC
+     LIMIT $2`,
+    [sector, limit]
+  );
+  return rows;
+}
+
+export async function getSectorActors(sector: string, limit = 10) {
+  const { rows } = await query<any>(
+    `SELECT actor_name, COUNT(*)::int as cnt FROM (
+       SELECT unnest(d.actors) as actor_name
+       FROM documents d WHERE $1 = ANY(d.sectors)
+     ) sub
+     WHERE actor_name IS NOT NULL
+     GROUP BY actor_name ORDER BY cnt DESC LIMIT $2`,
+    [sector, limit]
+  );
+  return rows;
+}
+
 export async function getReportWeeklyDigest(days = 7) {
   const { rows } = await query<any>(
     `SELECT day, COUNT(*) as total, COUNT(*) FILTER (WHERE ai_threat) as ai_count,

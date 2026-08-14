@@ -109,13 +109,13 @@ export default async function ReportsPage() {
           {sectors.length === 0 && <div className="text-xs text-dim">No sector data yet.</div>}
           <div className="space-y-2">
             {sectors.map((s: any) => (
-              <div key={s.sector} className="flex items-center gap-3">
-                <div className="w-32 text-[11px] uppercase tracking-widest text-dim">
+              <a key={s.sector} href={`/sector/${encodeURIComponent(s.sector)}`} className="flex items-center gap-3 group">
+                <div className="w-32 text-[11px] uppercase tracking-widest text-dim group-hover:text-fg transition-colors">
                   {s.sector}
                 </div>
                 <div className="flex-1 h-5 bg-fg/5 relative">
                   <div
-                    className="h-full transition-all"
+                    className="h-full transition-all group-hover:opacity-80"
                     style={{ width: `${(s.doc_count / maxSector) * 100}%`, backgroundColor: SECTOR_COLORS[s.sector] || '#00d97e' }}
                   />
                 </div>
@@ -125,7 +125,7 @@ export default async function ReportsPage() {
                     ({s.critical} crit)
                   </span>
                 </div>
-              </div>
+              </a>
             ))}
           </div>
         </section>
