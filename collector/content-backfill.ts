@@ -203,7 +203,7 @@ async function main() {
   }
   log(`  ${cveEnriched} CVE zenginleştirildi`);
 
-  // ── F. stats_summary yenile ──
+  // ── F. stats_summary yenile + veri temizliği ──
   log('F. İstatistik yenileme + veri temizliği...');
   await pool.query(`REFRESH MATERIALIZED VIEW IF EXISTS stats_summary`).catch(() => {});
   // actors.document_count: her aktörün adını içeren doküman sayısı
@@ -217,6 +217,64 @@ async function main() {
   await pool.query(`UPDATE documents SET content = summary WHERE (content IS NULL OR content='') AND summary IS NOT NULL AND summary != ''`);
   await pool.query(`UPDATE documents SET summary = title, content = COALESCE(NULLIF(content,''), title) WHERE (summary IS NULL OR summary='') AND title IS NOT NULL`);
   await pool.query(`DELETE FROM documents d USING documents d2 WHERE d.id > d2.id AND d.title = d2.title`);
+
+  // ── G. Kill chain phase atama (deterministik keyword eşleştirme) ──
+  log('G. Kill chain phase atama...');
+  const KILLCHAIN: [string, string[]][] = [
+    ['reconnaissance', ['recon', 'scan', 'fingerprint', 'discovery', 'probe', 'osint']],
+    ['weaponization', ['weaponiz', 'malware develop', 'payload', 'exploit kit', 'doc weapon']],
+    ['delivery', ['phishing', 'spam', 'malicious link', 'drive-by', 'watering hole', 'malvertising']],
+    ['exploitation', ['exploit', 'cve-', 'rce', 'vulnerability', 'zero-day', 'zeroday', 'remote code']],
+    ['installation', ['install', 'persistence', 'backdoor', 'implant', 'dropper', 'loader', 'webshell']],
+    ['c2', ['c2', 'command and control', 'command-and-control', 'botnet', 'beacon']],
+    ['actions-on-objectives', ['exfiltrat', 'data theft', 'ransomware', 'encrypt', 'lateral movement', 'data leak', 'destroy']],
+  ];
+  let kcUpdated = 0;
+  const { rows: kcDocs } = await pool.query<any>(`SELECT id, title, COALESCE(content,'') as content FROM documents WHERE kill_chain_phase IS NULL OR kill_chain_phase=''`);
+  for (const d of kcDocs) {
+    const text = (d.title + ' ' + d.content).toLowerCase();
+    for (const [phase, kws] of KILLCHAIN) {
+      if (kws.some(k => text.includes(k))) {
+        await pool.query(`UPDATE documents SET kill_chain_phase=$1 WHERE id=$2`, [phase, d.id]);
+        kcUpdated++;
+        break;
+      }
+    }
+  }
+  log(`  ${kcUpdated} dokümana kill chain atandı`);
+
+  // ── H. AI summary üretimi (deterministik — gerçek metinden) ──
+  log('H. AI summary üretimi...');
+  const { rows: sumDocs } = await pool.query<any>(
+    `SELECT id, title, COALESCE(summary,'') as summary, COALESCE(content,'') as content,
+            actors, cves, sectors, techniques, severity, kill_chain_phase
+     FROM documents WHERE (ai_summary IS NULL OR ai_summary='') AND id > 0`
+  );
+  let sumUpdated = 0;
+  for (const d of sumDocs) {
+    const parts: string[] = [];
+    // 1) İlk cümle (lead)
+    const text = (d.summary || d.content || d.title || '').trim();
+    const firstSentence = text.split(/(?<=[.!?])\s+/)[0]?.slice(0, 280) || '';
+    if (firstSentence) parts.push(firstSentence);
+    // 2) Entity özeti
+    const entBits: string[] = [];
+    if (Array.isArray(d.actors) && d.actors.length) entBits.push(`actors: ${d.actors.slice(0,3).join(', ')}`);
+    if (Array.isArray(d.cves) && d.cves.length) entBits.push(`cves: ${d.cves.slice(0,3).join(', ')}`);
+    if (Array.isArray(d.sectors) && d.sectors.length) entBits.push(`sectors: ${d.sectors.slice(0,3).join(', ')}`);
+    if (Array.isArray(d.techniques) && d.techniques.length) entBits.push(`ttps: ${d.techniques.slice(0,2).join(', ')}`);
+    if (d.kill_chain_phase) entBits.push(`phase: ${d.kill_chain_phase}`);
+    if (d.severity) entBits.push(`severity: ${d.severity}/10`);
+    if (entBits.length) parts.push('[' + entBits.join(' · ') + ']');
+    // 3) Kelime sayısı + dil notu
+    parts.push(`${(d.content || '').split(/\s+/).filter(Boolean).length} words`);
+    const aiSummary = parts.join(' ');
+    if (aiSummary.trim()) {
+      await pool.query(`UPDATE documents SET ai_summary=$1 WHERE id=$2`, [aiSummary, d.id]);
+      sumUpdated++;
+    }
+  }
+  log(`  ${sumUpdated} dokümana AI summary üretildi`);
 
   log('BACKFILL TAMAM');
   const final = await pool.query<any>(`SELECT

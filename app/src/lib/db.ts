@@ -187,3 +187,87 @@ export async function getTrends(days = 30) {
   );
   return rows;
 }
+
+// ─── Rapor query'leri (uzun vadeli kaynak ürün) ────────────────
+
+export async function getReportSectorSummary(limit = 12) {
+  const { rows } = await query<any>(
+    `SELECT sector, COUNT(*) as doc_count,
+            COUNT(*) FILTER (WHERE severity >= 8) as critical,
+            COUNT(*) FILTER (WHERE severity >= 5 AND severity < 8) as high,
+            COUNT(*) FILTER (WHERE ai_threat) as ai_count
+     FROM documents d, unnest(d.sectors) as sector
+     WHERE d.sectors IS NOT NULL AND array_length(d.sectors, 1) > 0
+     GROUP BY sector ORDER BY doc_count DESC LIMIT $1`,
+    [limit]
+  );
+  return rows;
+}
+
+export async function getReportActorTimeline(days = 90) {
+  const { rows } = await query<any>(
+    `SELECT a.name as actor,
+            date_trunc('day', COALESCE(d.published_at, d.fetched_at))::date as day,
+            COUNT(*) as doc_count
+     FROM documents d, unnest(d.actors) as a(name)
+     WHERE d.actors IS NOT NULL AND array_length(d.actors, 1) > 0
+       AND COALESCE(d.published_at, d.fetched_at) >= NOW() - ($1 || ' days')::interval
+     GROUP BY a.name, day ORDER BY a.name, day`,
+    [days]
+  );
+  return rows;
+}
+
+export async function getReportKillChain() {
+  const { rows } = await query<any>(
+    `SELECT COALESCE(kill_chain_phase, 'unclassified') as phase, COUNT(*) as doc_count
+     FROM documents GROUP BY phase ORDER BY doc_count DESC`
+  );
+  return rows;
+}
+
+export async function getReportSourceHealth() {
+  const { rows } = await query<any>(
+    `SELECT s.name, s.category, s.tier, s.enabled,
+            s.total_items, s.last_items_count, s.last_status,
+            COUNT(d.id) as docs_ingested,
+            MAX(d.fetched_at) as last_fetch
+     FROM sources s
+     LEFT JOIN documents d ON d.source_id = s.id
+     GROUP BY s.name, s.category, s.tier, s.enabled, s.total_items, s.last_items_count, s.last_status
+     ORDER BY s.tier, s.name`
+  );
+  return rows;
+}
+
+export async function getReportTopIOCs(type?: string, limit = 25) {
+  const { rows } = await query<any>(
+    `SELECT value, type, COUNT(*) as doc_mentions,
+            MAX(confidence) as max_conf, MIN(first_seen) as first_seen, MAX(last_seen) as last_seen
+     FROM iocs
+     WHERE ($1::text IS NULL OR type = $1)
+     GROUP BY value, type
+     ORDER BY doc_mentions DESC, value
+     LIMIT $2`,
+    [type || null, limit]
+  );
+  return rows;
+}
+
+export async function getReportWeeklyDigest(days = 7) {
+  const { rows } = await query<any>(
+    `SELECT day, COUNT(*) as total, COUNT(*) FILTER (WHERE ai_threat) as ai_count,
+            COUNT(*) FILTER (WHERE cves IS NOT NULL) as has_cves,
+            ARRAY_AGG(DISTINCT source_name) FILTER (WHERE source_name IS NOT NULL) as sources
+     FROM (
+       SELECT date_trunc('day', COALESCE(d.published_at, d.fetched_at))::date as day,
+              d.ai_threat, d.cves, s.name as source_name
+       FROM documents d
+       LEFT JOIN sources s ON d.source_id = s.id
+       WHERE COALESCE(d.published_at, d.fetched_at) >= NOW() - ($1 || ' days')::interval
+     ) sub
+     GROUP BY day ORDER BY day DESC`,
+    [days]
+  );
+  return rows;
+}

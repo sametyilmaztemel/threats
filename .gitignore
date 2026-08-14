@@ -61,11 +61,6 @@ postgres-data/
 .tar.gz
 *.tardb/postgres-data/
 db/redis-data/
-app-runtime/src/
-app-runtime/node_modules/
-app-runtime/.next/
-app/src/
-app/node_modules/
-app/.next/
+app-runtime/
 threats/collector/test-*.ts
 threats/scripts/
