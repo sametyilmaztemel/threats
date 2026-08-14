@@ -91,8 +91,12 @@ async function main() {
     }
   }
 
-  // b) URL eşleşmesi (malicious_url / phishing_url değerleri)
+  // b) URL eşleşmesi (malicious_url / phishing_url değerleri) + HOST bazlı
+  //    - full URL eşleşmesi (nadir)
+  //    - URL host kısmı → domain/attacker_ip değerleriyle eşleşme (sık)
   const urlDocMap = new Map<string, Set<number>>();
+  const hostDocMap = new Map<string, Set<number>>();
+  const ipDocMap = new Map<string, Set<number>>();
   for (const d of docs) {
     const text = `${d.title || ''} ${d.summary || ''} ${d.content || ''}`.toLowerCase();
     for (const m of text.matchAll(/https?:\/\/[a-z0-9.\-:/_%?=&~+#]+/gi)) {
@@ -100,18 +104,47 @@ async function main() {
       if (u.length < 12 && u.length > 500) continue;
       if (!urlDocMap.has(u)) urlDocMap.set(u, new Set());
       urlDocMap.get(u)!.add(d.id);
+      // host kısmını çıkar
+      try {
+        const host = new URL(u.startsWith('http') ? u : `http://${u}`).hostname;
+        if (host && host.includes('.')) {
+          if (!hostDocMap.has(host)) hostDocMap.set(host, new Set());
+          hostDocMap.get(host)!.add(d.id);
+        }
+      } catch {}
+    }
+    // IP'ler zaten candidates'te (IPV4_RE) — hostDocMap'e IP'leri de ekle
+    for (const m of text.matchAll(IPV4_RE)) {
+      const ip = m[1];
+      if (validIp(ip)) {
+        if (!ipDocMap.has(ip)) ipDocMap.set(ip, new Set());
+        ipDocMap.get(ip)!.add(d.id);
+      }
     }
   }
-  for (let i = 0; i < urlCandidates.size; i += 300) {
-    const chunk = [...urlCandidates].slice(i, i + 300);
-    const { rows: iocRows } = await pool.query<any>(
-      `SELECT id, value, type FROM iocs
-       WHERE type IN ('malicious_url','phishing_url')
-         AND LOWER(value) = ANY($1::text[])`,
-      [chunk]
-    );
-    for (const ioc of iocRows) {
-      const docIds = urlDocMap.get(ioc.value.toLowerCase());
+  // ioc değerlerinden host çıkar ve eşleştir (chunk'lı)
+  const { rows: allIocRows } = await pool.query<any>(
+    `SELECT id, value, type FROM iocs
+     WHERE type IN ('malicious_url','phishing_url','domain','c2_ip','attacker_ip')`
+  );
+  for (const ioc of allIocRows) {
+      const v = ioc.value.toLowerCase();
+      let docIds: Set<number> | undefined;
+
+      if (ioc.type === 'malicious_url' || ioc.type === 'phishing_url') {
+        docIds = urlDocMap.get(v);
+        if (!docIds) {
+          try {
+            const host = new URL(v.startsWith('http') ? v : `http://${v}`).hostname;
+            docIds = hostDocMap.get(host) || ipDocMap.get(host);
+          } catch {}
+        }
+      } else if (ioc.type === 'domain') {
+        docIds = hostDocMap.get(v);
+      } else if (ioc.type === 'c2_ip' || ioc.type === 'attacker_ip') {
+        docIds = ipDocMap.get(v);
+      }
+
       if (docIds) {
         for (const docId of docIds) {
           await pool.query(
@@ -123,7 +156,6 @@ async function main() {
           linkedDocIds.add(docId);
         }
       }
-    }
   }
   log(`toplam ${linked} bağlantı eklendi (${linkedDocIds.size} doküman)`);
 
