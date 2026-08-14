@@ -89,6 +89,7 @@ services:
       - ./collector/fetch-fulltext.ts:/app/fetch-fulltext.ts:ro
       - ./collector/link-iocs.ts:/app/link-iocs.ts:ro
       - ./collector/generate-report.ts:/app/generate-report.ts:ro
+      - ./collector/alert-webhook.ts:/app/alert-webhook.ts:ro
       - ./reports:/app/reports
     mem_limit: 256m
     depends_on:
