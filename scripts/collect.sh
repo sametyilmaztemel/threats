@@ -20,3 +20,12 @@ else
 fi
 
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Collector tamam."
+
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] İçerik backfill başlıyor (aktör/teknik/AI/CVE)..."
+if [ -f /app/content-backfill.ts ]; then
+  cd /app && npx tsx content-backfill.ts >> /tmp/content-backfill.log 2>&1 || echo "backfill hata (devam)"
+  cd /app/collector
+else
+  echo "content-backfill.ts yok — atlandı"
+fi
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Backfill tamam."

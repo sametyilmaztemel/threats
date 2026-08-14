@@ -83,6 +83,7 @@ services:
       - ./collector:/app/collector:ro
       - ./scripts:/scripts:ro
       - ./app/node_modules:/app/node_modules:ro
+      - ./collector/content-backfill.ts:/app/content-backfill.ts:ro
     mem_limit: 256m
     depends_on:
       postgres:
