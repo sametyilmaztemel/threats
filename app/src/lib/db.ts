@@ -129,6 +129,43 @@ export async function getDailySeverity() {
   return rows.reverse();
 }
 
+export async function getSectorKillChainCross() {
+  const { rows } = await query<any>(
+    `SELECT sector, COALESCE(kill_chain_phase, 'unassigned') as phase, COUNT(*)::int as n
+     FROM documents d, unnest(d.sectors) sector
+     WHERE d.kill_chain_phase IS NOT NULL
+     GROUP BY sector, phase
+     ORDER BY n DESC`
+  );
+  return rows;
+}
+
+export async function getActorTimeSeries(days = 30) {
+  const { rows } = await query<any>(
+    `SELECT actor_name, date_trunc('day', COALESCE(d.published_at, d.fetched_at))::date as day, COUNT(*)::int as n
+     FROM documents d, unnest(d.actors) actor_name
+     WHERE COALESCE(d.published_at, d.fetched_at) >= NOW() - ($1 || ' days')::interval
+     GROUP BY actor_name, day
+     ORDER BY day`,
+    [days]
+  );
+  return rows;
+}
+
+export async function getCveAgeDistribution() {
+  const { rows } = await query<any>(
+    `SELECT CASE
+       WHEN published_date >= NOW() - interval '30 days' THEN '0-30d'
+       WHEN published_date >= NOW() - interval '90 days' THEN '31-90d'
+       WHEN published_date >= NOW() - interval '365 days' THEN '91-365d'
+       ELSE '1y+' END as bucket,
+       COUNT(*)::int as n
+     FROM cve_enrichment WHERE published_date IS NOT NULL
+     GROUP BY bucket ORDER BY bucket`
+  );
+  return rows;
+}
+
 export async function getAITreatments(limit = 50) {
   const { rows } = await query<any>(
     `SELECT a.*, d.title, d.url, d.published_at, d.severity
