@@ -110,19 +110,52 @@ async function main() {
       .join(', ') || null;
 
     await pool.query(
-      `INSERT INTO techniques (attack_id, name, tactic, description, is_atlas, created_at)
-       VALUES ($1, $2, $3, $4, false, NOW())
+      `INSERT INTO techniques (attack_id, name, tactic, description, detection, mitigation, is_atlas, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, false, NOW())
        ON CONFLICT (attack_id) DO UPDATE SET
          name = EXCLUDED.name,
          tactic = EXCLUDED.tactic,
-         description = EXCLUDED.description`,
-      [attackId, name, tactic, p.description || null]
+         description = EXCLUDED.description,
+         detection = EXCLUDED.detection,
+         mitigation = EXCLUDED.mitigation`,
+      [attackId, name, tactic, p.description || null, p.x_mitre_detection || null, p.x_mitre_mitigation || null]
     );
     techUpsert++;
   }
   log(`teknik upsert: ${techUpsert}`);
 
-  // 3) Opsiyonel: kampanyalar (campaign) → description'a not
+  // 3) Aktör↔teknik ilişkileri (relationship nesneleri: uses)
+  //    intrusion-set → attack-pattern (uses) — actors.ttps'e attack_id ekle
+  const relationships = objects.filter((o: any) => o.type === 'relationship' && o.relationship_type === 'uses');
+  log(`uses relationship: ${relationships.length}`);
+  // STIX id → attack_id map
+  const patternIdToAttack = new Map<string, string>();
+  for (const p of patterns) {
+    if (p.id) patternIdToAttack.set(p.id, (p.external_references || []).find((r: any) => r.source_name === 'mitre-attack')?.external_id || '');
+  }
+  const groupIdToName = new Map<string, string>();
+  for (const g of groups) if (g.id) groupIdToName.set(g.id, g.name);
+
+  let relLinked = 0;
+  const ttpsByActor = new Map<string, Set<string>>(); // actor name → attack ids
+  for (const rel of relationships) {
+    const groupId = rel.source_ref || '';
+    const patternId = rel.target_ref || '';
+    const actorName = groupIdToName.get(groupId);
+    const attackId = patternIdToAttack.get(patternId);
+    if (!actorName || !attackId) continue;
+    if (!ttpsByActor.has(actorName)) ttpsByActor.set(actorName, new Set());
+    ttpsByActor.get(actorName)!.add(attackId);
+    relLinked++;
+  }
+  log(`ilişkili (aktör→teknik): ${relLinked}`);
+  for (const [actorName, ttpSet] of ttpsByActor) {
+    const ttpArr = [...ttpSet].slice(0, 50);
+    await pool.query(`UPDATE actors SET ttps=$1 WHERE LOWER(name)=LOWER($2)`, [ttpArr, actorName]);
+  }
+  log(`${ttpsByActor.size} aktörün ttps'i güncellendi`);
+
+  // 4) Opsiyonel: kampanyalar (campaign) → description'a not
   const campaigns = objects.filter((o: any) => o.type === 'campaign');
   log(`campaign: ${campaigns.length} (atlandı)`);
 

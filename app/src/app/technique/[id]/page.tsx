@@ -4,8 +4,16 @@ import Breadcrumb from '@/components/layout/Breadcrumb';
 import PageHeader from '@/components/layout/PageHeader';
 import EmptyState from '@/components/ui/EmptyState';
 import { format } from '@/lib/format';
+import type { Metadata } from 'next';
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+  const techId = decodeURIComponent(params.id).toUpperCase();
+  const { rows } = await query<any>(`SELECT name, tactic FROM techniques WHERE UPPER(attack_id)=$1 LIMIT 1`, [techId]);
+  if (!rows[0]) return { title: 'Technique' };
+  return { title: `${rows[0].name} (${techId})` };
+}
 
 export default async function TechniquePage({ params }: { params: { id: string } }) {
   const techId = decodeURIComponent(params.id).toUpperCase();
@@ -36,6 +44,15 @@ export default async function TechniquePage({ params }: { params: { id: string }
   );
   const docs = docsRes.rows;
 
+  // Fetch actors that reference this technique (via ttps array)
+  const actorsRes = await query<any>(
+    `SELECT name, origin_country, document_count FROM actors
+     WHERE EXISTS (SELECT 1 FROM unnest(ttps) t WHERE UPPER(t) = $1)
+     ORDER BY document_count DESC LIMIT 15`,
+    [techId]
+  );
+  const techniqueActors = actorsRes.rows;
+
   return (
     <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
       <Breadcrumb
@@ -65,6 +82,43 @@ export default async function TechniquePage({ params }: { params: { id: string }
         <div className="mb-8 md:mb-12 p-3 md:p-4 border border-line bg-panel">
           <div className="text-[10px] tracking-widest2 text-dim mb-2">TECHNIQUE DESCRIPTION</div>
           <div className="text-[12px] md:text-[13px] leading-relaxed text-fg break-words">{technique.description}</div>
+        </div>
+      )}
+
+      {/* Detection + Mitigation grid */}
+      {(technique?.detection || technique?.mitigation) && (
+        <div className="grid md:grid-cols-2 gap-px bg-line border border-line mb-8 md:mb-12">
+          {technique?.detection && (
+            <div className="bg-bg p-4 md:p-5">
+              <div className="text-[10px] tracking-widest2 text-dim mb-2 text-[#00d97e]">DETECTION</div>
+              <div className="text-[11px] md:text-[12px] leading-relaxed text-fg/90">{technique.detection}</div>
+            </div>
+          )}
+          {technique?.mitigation && (
+            <div className="bg-bg p-4 md:p-5">
+              <div className="text-[10px] tracking-widest2 text-dim mb-2 text-[#ffd60a]">MITIGATION</div>
+              <div className="text-[11px] md:text-[12px] leading-relaxed text-fg/90">{technique.mitigation}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Actors using this technique */}
+      {techniqueActors.length > 0 && (
+        <div className="mb-8 md:mb-12">
+          <div className="text-[10px] tracking-widest2 text-dim mb-4">ACTORS USING THIS TECHNIQUE ({techniqueActors.length})</div>
+          <div className="flex gap-2 flex-wrap">
+            {techniqueActors.map((a: any) => (
+              <a
+                key={a.name}
+                href={`/actor/${a.name.toLowerCase().replace(/\s+/g, '-')}`}
+                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-mono uppercase tracking-widest2 border border-line hover:border-fg transition-colors"
+              >
+                {a.name}
+                {a.origin_country && <span className="text-dim">· {a.origin_country}</span>}
+              </a>
+            ))}
+          </div>
         </div>
       )}
 
