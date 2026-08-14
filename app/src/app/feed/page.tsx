@@ -178,6 +178,13 @@ export default async function FeedPage({
   const total = countResult.rows[0]?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // Arama varsa ts_rank ilgililik sıralaması, yoksa tarih
+  // q her zaman ilk parametre ($1) — whereClause'da en başta eklenir
+  const hasSearch = searchParams.q && searchParams.q.trim();
+  const orderBy = hasSearch
+    ? `ORDER BY ts_rank(d.search_vector, plainto_tsquery('english', $1)) DESC, COALESCE(d.published_at, d.fetched_at) DESC`
+    : `ORDER BY COALESCE(d.published_at, d.fetched_at) DESC`;
+
   const docsQuery = `
     SELECT d.id, d.title, d.url, d.summary, d.author, d.published_at,
            d.fetched_at, d.severity, d.category, d.cves, d.actors,
@@ -187,7 +194,7 @@ export default async function FeedPage({
     FROM documents d
     LEFT JOIN sources s ON d.source_id = s.id
     ${whereClause}
-    ORDER BY COALESCE(d.published_at, d.fetched_at) DESC
+    ${orderBy}
     LIMIT $${pIdx} OFFSET $${pIdx + 1}
   `;
   const docsResult = await query<any>(docsQuery, [

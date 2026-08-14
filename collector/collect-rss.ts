@@ -128,11 +128,19 @@ async function ingestRSS(source: any) {
       `UPDATE sources SET last_fetched_at = NOW(), last_status = 'ok', last_items_count = $1, total_items = total_items + $1 WHERE id = $2`,
       [count, source.id]
     );
+    await pool.query(
+      `INSERT INTO source_history (source_id, status, items_count) VALUES ($1, 'ok', $2)`,
+      [source.id, count]
+    );
     return count;
   } catch (e: any) {
     await pool.query(
       `UPDATE sources SET last_fetched_at = NOW(), last_status = $1 WHERE id = $2`,
       [`error: ${e.message.slice(0, 200)}`, source.id]
+    );
+    await pool.query(
+      `INSERT INTO source_history (source_id, status, items_count) VALUES ($1, $2, 0)`,
+      [source.id, `error: ${e.message.slice(0, 200)}`]
     );
     return 0;
   }

@@ -92,6 +92,7 @@ services:
       - ./collector/generate-report.ts:/app/generate-report.ts:ro
       - ./collector/alert-webhook.ts:/app/alert-webhook.ts:ro
       - ./collector/enrich-epss-kev.ts:/app/enrich-epss-kev.ts:ro
+      - ./collector/dead-feed-alert.ts:/app/dead-feed-alert.ts:ro
       - ./reports:/app/reports
     mem_limit: 256m
     depends_on:
