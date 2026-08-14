@@ -204,7 +204,7 @@ async function main() {
   log(`  ${cveEnriched} CVE zenginleştirildi`);
 
   // ── F. stats_summary yenile ──
-  log('F. İstatistik yenileme...');
+  log('F. İstatistik yenileme + veri temizliği...');
   await pool.query(`REFRESH MATERIALIZED VIEW IF EXISTS stats_summary`).catch(() => {});
   // actors.document_count: her aktörün adını içeren doküman sayısı
   await pool.query(`
@@ -212,6 +212,11 @@ async function main() {
       SELECT COUNT(*) FROM documents d WHERE d.actors IS NOT NULL AND a.name = ANY(d.actors)
     ), updated_at = NOW()
   `);
+
+  // Veri temizliği: content/summary eksiklerini doldur, duplicate sil
+  await pool.query(`UPDATE documents SET content = summary WHERE (content IS NULL OR content='') AND summary IS NOT NULL AND summary != ''`);
+  await pool.query(`UPDATE documents SET summary = title, content = COALESCE(NULLIF(content,''), title) WHERE (summary IS NULL OR summary='') AND title IS NOT NULL`);
+  await pool.query(`DELETE FROM documents d USING documents d2 WHERE d.id > d2.id AND d.title = d2.title`);
 
   log('BACKFILL TAMAM');
   const final = await pool.query<any>(`SELECT
