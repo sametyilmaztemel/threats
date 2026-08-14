@@ -16,17 +16,21 @@ export async function getStats() {
   return rows[0] || {};
 }
 
-export async function getRecentDocuments(limit = 50, aiOnly = false) {
+export async function getRecentDocuments(limit = 50, aiOnly = false, aiCategory?: string) {
   const where = aiOnly ? 'WHERE ai_threat = TRUE' : '';
+  const catJoin = aiCategory
+    ? `JOIN ai_threats at ON at.document_id = d.id AND at.ai_category = $2`
+    : '';
   const { rows } = await query<any>(
     `SELECT d.id, d.title, d.url, d.severity, d.published_at, d.fetched_at,
             d.category, d.cves, d.actors, d.ai_threat, s.name as source_name, s.category as source_category
      FROM documents d
      LEFT JOIN sources s ON d.source_id = s.id
+     ${catJoin}
      ${where}
      ORDER BY COALESCE(d.published_at, d.fetched_at) DESC
      LIMIT $1`,
-    [limit]
+    aiCategory ? [limit, aiCategory] : [limit]
   );
   return rows;
 }
@@ -54,25 +58,50 @@ export async function searchDocuments(search: string, limit = 50, aiOnly = false
   return rows;
 }
 
-export async function getIOCs(limit = 100, type?: string) {
+export async function getIOCs(limit = 100, type?: string, offset = 0, hashTypes?: string[] | null) {
   let rows;
   if (type) {
     rows = (await query<any>(
       `SELECT i.*, s.name as source_name FROM iocs i
        LEFT JOIN sources s ON i.source_id = s.id
        WHERE i.type = $1
-       ORDER BY i.created_at DESC LIMIT $2`,
-      [type, limit]
+       ORDER BY i.created_at DESC LIMIT $2 OFFSET $3`,
+      [type, limit, offset]
+    )).rows;
+  } else if (hashTypes && hashTypes.length > 0) {
+    rows = (await query<any>(
+      `SELECT i.*, s.name as source_name FROM iocs i
+       LEFT JOIN sources s ON i.source_id = s.id
+       WHERE i.type = ANY($1::text[])
+       ORDER BY i.created_at DESC LIMIT $2 OFFSET $3`,
+      [hashTypes, limit, offset]
     )).rows;
   } else {
     rows = (await query<any>(
       `SELECT i.*, s.name as source_name FROM iocs i
        LEFT JOIN sources s ON i.source_id = s.id
-       ORDER BY i.created_at DESC LIMIT $1`,
-      [limit]
+       ORDER BY i.created_at DESC LIMIT $1 OFFSET $2`,
+      [limit, offset]
     )).rows;
   }
   return rows;
+}
+
+export async function getIOCCount(type?: string, hashTypes?: string[] | null) {
+  let where = '';
+  let params: any[] = [];
+  if (type) {
+    where = 'WHERE i.type = $1';
+    params = [type];
+  } else if (hashTypes && hashTypes.length > 0) {
+    where = 'WHERE i.type = ANY($1::text[])';
+    params = [hashTypes];
+  }
+  const { rows } = await query<any>(
+    `SELECT COUNT(*)::int as total FROM iocs i ${where}`,
+    params
+  );
+  return rows[0]?.total || 0;
 }
 
 export async function getActors(limit = 100) {
@@ -169,15 +198,29 @@ export async function getCVEs(limit = 100) {
   return rows;
 }
 
-export async function getCVEList(page = 1, pageSize = 50, search?: string) {
+export async function getCVEList(page = 1, pageSize = 50, search?: string, minCvss?: number, vendor?: string) {
   const offset = (page - 1) * pageSize;
-  const hasSearch = search && search.trim();
-  const where = hasSearch
-    ? `WHERE (ce.cve_id ILIKE $3 OR ce.description ILIKE $3 OR ce.vendor ILIKE $3 OR ce.product ILIKE $3)`
-    : '';
-  const params = hasSearch
-    ? [pageSize, offset, `%${search.trim()}%`]
-    : [pageSize, offset];
+  const conds: string[] = [];
+  const params: any[] = [pageSize, offset];
+  let pIdx = 3;
+
+  if (search && search.trim()) {
+    conds.push(`(ce.cve_id ILIKE $${pIdx} OR ce.description ILIKE $${pIdx} OR ce.vendor ILIKE $${pIdx} OR ce.product ILIKE $${pIdx})`);
+    params.push(`%${search.trim()}%`);
+    pIdx++;
+  }
+  if (minCvss !== undefined && minCvss !== null) {
+    conds.push(`ce.cvss_v3 >= $${pIdx}`);
+    params.push(minCvss);
+    pIdx++;
+  }
+  if (vendor && vendor.trim()) {
+    conds.push(`ce.vendor ILIKE $${pIdx}`);
+    params.push(`%${vendor.trim()}%`);
+    pIdx++;
+  }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+
   const { rows } = await query<any>(
     `SELECT ce.cve_id, ce.cvss_v3, ce.description, ce.vendor, ce.product, ce.published_date, ce.last_enriched_at,
             (SELECT COUNT(*) FROM document_cves dc WHERE dc.cve_id = ce.cve_id) as mentions,
@@ -193,12 +236,27 @@ export async function getCVEList(page = 1, pageSize = 50, search?: string) {
   return rows;
 }
 
-export async function getCVECount(search?: string) {
-  const hasSearch = search && search.trim();
-  const where = hasSearch
-    ? `WHERE (cve_id ILIKE $1 OR description ILIKE $1 OR vendor ILIKE $1 OR product ILIKE $1)`
-    : '';
-  const params = hasSearch ? [`%${search.trim()}%`] : [];
+export async function getCVECount(search?: string, minCvss?: number, vendor?: string) {
+  const conds: string[] = [];
+  const params: any[] = [];
+  let pIdx = 1;
+
+  if (search && search.trim()) {
+    conds.push(`(cve_id ILIKE $${pIdx} OR description ILIKE $${pIdx} OR vendor ILIKE $${pIdx} OR product ILIKE $${pIdx})`);
+    params.push(`%${search.trim()}%`);
+    pIdx++;
+  }
+  if (minCvss !== undefined && minCvss !== null) {
+    conds.push(`cvss_v3 >= $${pIdx}`);
+    params.push(minCvss);
+    pIdx++;
+  }
+  if (vendor && vendor.trim()) {
+    conds.push(`vendor ILIKE $${pIdx}`);
+    params.push(`%${vendor.trim()}%`);
+    pIdx++;
+  }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
   const { rows } = await query<any>(
     `SELECT COUNT(*)::int as total FROM cve_enrichment ce ${where}`,
     params

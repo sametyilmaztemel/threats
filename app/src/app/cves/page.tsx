@@ -28,18 +28,33 @@ function cvssLabel(score: number | null): string {
   return 'LOW';
 }
 
-export default async function CVEsPage({ searchParams }: { searchParams: { q?: string; page?: string } }) {
+export default async function CVEsPage({ searchParams }: { searchParams: { q?: string; sev?: string; vendor?: string; page?: string } }) {
   const page = Math.max(1, parseInt(searchParams.page || '1') || 1);
   const q = searchParams.q || '';
+  const sev = searchParams.sev || '';
+  const vendor = searchParams.vendor || '';
+  // sev: critical=9, high=7, medium=4, low=1
+  const sevMap: Record<string, number> = { critical: 9, high: 7, medium: 4, low: 1 };
+  const minCvss = sevMap[sev] ?? undefined;
   const [cves, total] = await Promise.all([
-    getCVEList(page, PAGE_SIZE, q),
-    getCVECount(q),
+    getCVEList(page, PAGE_SIZE, q, minCvss, vendor),
+    getCVECount(q, minCvss, vendor),
   ]);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pages: number[] = [];
   const startPage = Math.max(1, page - 2);
   const endPage = Math.min(totalPages, page + 2);
   for (let p = startPage; p <= endPage; p++) pages.push(p);
+
+  const qs = (extra: Record<string, string>) => {
+    const p = new URLSearchParams();
+    if (q) p.set('q', q);
+    if (sev) p.set('sev', sev);
+    if (vendor) p.set('vendor', vendor);
+    for (const [k, v] of Object.entries(extra)) if (v) p.set(k, v);
+    const s = p.toString();
+    return s ? `?${s}` : '';
+  };
 
   return (
     <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
@@ -52,7 +67,7 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
           CVES<span className="text-high">.</span>
         </h1>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-4 text-[11px] font-mono text-dim">
-          <div>{total} CVEs enriched</div>
+          <div>{total} CVEs</div>
           <div>CVSS · vendor · product</div>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1"><span className="w-2 h-2 bg-[#ff3030] inline-block" /> critical</span>
@@ -62,20 +77,41 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
           </div>
         </div>
 
-        {/* Search */}
-        <form method="GET" className="mt-5 max-w-md">
-          <div className="flex border border-line">
-            <input
-              type="text"
-              name="q"
-              defaultValue={q}
-              placeholder="CVE-2026-… / vendor / product / keyword"
-              className="flex-1 bg-transparent px-3 py-2 text-[12px] font-mono outline-none placeholder:text-dim/50"
-            />
-            <button type="submit" className="px-4 text-[10px] tracking-widest2 border-l border-line hover:bg-fg hover:text-bg transition-colors">
-              SEARCH
-            </button>
-          </div>
+        {/* Filter bar */}
+        <form method="GET" className="mt-5 flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            name="q"
+            defaultValue={q}
+            placeholder="CVE ID / keyword…"
+            className="flex-1 min-w-[180px] bg-transparent border border-line px-3 py-2 text-[12px] font-mono outline-none placeholder:text-dim/50"
+          />
+          <select
+            name="sev"
+            defaultValue={sev}
+            className="bg-bg border border-line px-3 py-2 text-[12px] font-mono outline-none text-dim"
+          >
+            <option value="">SEVERITY: ALL</option>
+            <option value="critical">CRITICAL (≥9.0)</option>
+            <option value="high">HIGH (≥7.0)</option>
+            <option value="medium">MEDIUM (≥4.0)</option>
+            <option value="low">LOW (≥1.0)</option>
+          </select>
+          <input
+            type="text"
+            name="vendor"
+            defaultValue={vendor}
+            placeholder="Vendor…"
+            className="w-36 bg-transparent border border-line px-3 py-2 text-[12px] font-mono outline-none placeholder:text-dim/50"
+          />
+          <button type="submit" className="px-4 py-2 text-[10px] tracking-widest2 border border-[#00d97e] text-[#00d97e] hover:bg-[#00d97e] hover:text-bg transition-colors">
+            FILTER
+          </button>
+          {(q || sev || vendor) && (
+            <a href="/cves" className="px-3 py-2 text-[10px] tracking-widest2 text-dim hover:text-fg border border-line transition-colors">
+              RESET
+            </a>
+          )}
         </form>
       </section>
 
@@ -135,14 +171,14 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
         <div className="flex items-center justify-center gap-1 mt-6">
           {page > 1 && (
             <a
-              href={`/cves?page=${page - 1}${q ? `&q=${encodeURIComponent(q)}` : ''}`}
+              href={`/cves${qs({ page: String(page - 1) })}`}
               className="px-3 py-1.5 text-[11px] border border-line hover:bg-fg hover:text-bg transition-colors"
             >←</a>
           )}
           {pages.map(p => (
             <a
               key={p}
-              href={`/cves?page=${p}${q ? `&q=${encodeURIComponent(q)}` : ''}`}
+              href={`/cves${qs({ page: String(p) })}`}
               className={`px-3 py-1.5 text-[11px] border transition-colors ${
                 p === page ? 'bg-fg text-bg border-fg' : 'border-line hover:bg-fg/10'
               }`}
@@ -150,7 +186,7 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
           ))}
           {page < totalPages && (
             <a
-              href={`/cves?page=${page + 1}${q ? `&q=${encodeURIComponent(q)}` : ''}`}
+              href={`/cves${qs({ page: String(page + 1) })}`}
               className="px-3 py-1.5 text-[11px] border border-line hover:bg-fg hover:text-bg transition-colors"
             >→</a>
           )}

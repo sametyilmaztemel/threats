@@ -4,9 +4,10 @@ import { formatNumber } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
-export default async function AIThreatsPage() {
+export default async function AIThreatsPage({ searchParams }: { searchParams: { cat?: string } }) {
+  const cat = searchParams.cat || '';
   const [docs, stats] = await Promise.all([
-    getRecentDocuments(50, true),
+    getRecentDocuments(50, true, cat),
     getStats()
   ]);
 
@@ -28,6 +29,25 @@ export default async function AIThreatsPage() {
             LLM jailbreaks, prompt injection campaigns, model extraction attacks, adversarial ML, deepfake phishing, and malicious model weights.
             Aggregated from MITRE ATLAS, arXiv, AI Incident Database, and security research feeds.
           </p>
+        </div>
+      </section>
+
+      {/* AI category filter */}
+      <section className="mb-10">
+        <div className="text-[10px] tracking-widest2 text-dim mb-3">AI THREAT CATEGORY</div>
+        <div className="flex gap-2 flex-wrap text-[11px] tracking-widest2">
+          <a href="/ai-threats" className={`px-3 py-1 border ${!cat ? 'border-fg text-fg' : 'border-line text-dim hover:text-fg hover:border-fg'}`}>
+            ALL
+          </a>
+          {['research', 'privacy-leak', 'ai-security', 'data-poisoning', 'content-safety', 'autonomous-weapon', 'prompt-injection', 'ai-abuse', 'model-theft'].map(c => (
+            <a
+              key={c}
+              href={`/ai-threats?cat=${c}`}
+              className={`px-3 py-1 border ${cat === c ? 'border-fg text-fg' : 'border-line text-dim hover:text-fg hover:border-fg'}`}
+            >
+              {c.toUpperCase().replace('-', ' ')}
+            </a>
+          ))}
         </div>
       </section>
 
