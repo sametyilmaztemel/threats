@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { query } from '@/lib/db';
+import { query, getActorTimeline } from '@/lib/db';
 import Breadcrumb from '@/components/layout/Breadcrumb';
 import PageHeader from '@/components/layout/PageHeader';
 import EmptyState from '@/components/ui/EmptyState';
@@ -61,6 +61,10 @@ export default async function ActorPage({ params }: { params: { slug: string } }
   );
   const relatedActors = relatedRes.rows;
 
+  // Actor activity timeline (last 90 days)
+  const timeline = await getActorTimeline(name, 90);
+  const maxTimeline = timeline.length ? Math.max(...timeline.map((t: any) => t.doc_count)) : 1;
+
   return (
     <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
       <Breadcrumb
@@ -99,6 +103,46 @@ export default async function ActorPage({ params }: { params: { slug: string } }
           <div className="text-[13px] md:text-[14px] font-mono mt-2 break-words">{actor?.type || '—'}</div>
         </div>
       </div>
+
+      {/* Activity timeline */}
+      {timeline.length > 0 && (
+        <div className="mb-8 md:mb-12">
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-[10px] tracking-widest2 text-dim">ACTIVITY · LAST 90 DAYS</div>
+            <div className="text-[9px] tracking-widest text-dim">
+              <span className="text-[#ff3030]">■</span> CRITICAL <span className="ml-3 text-[#00d97e]">■</span> ALL
+            </div>
+          </div>
+          <div className="flex items-end gap-[2px] h-24 border-b border-line">
+            {timeline.map((t: any) => {
+              const h = Math.max(2, Math.round((t.doc_count / maxTimeline) * 96));
+              const critH = t.critical > 0 ? Math.max(2, Math.round((t.critical / maxTimeline) * 96)) : 0;
+              return (
+                <div
+                  key={t.day}
+                  className="flex-1 flex items-end justify-center gap-[1px] group relative"
+                  title={`${t.day}: ${t.doc_count} docs (${t.critical} critical)`}
+                >
+                  {critH > 0 && (
+                    <div
+                      className="w-1/2 bg-[#ff3030] opacity-80 transition-all group-hover:opacity-100"
+                      style={{ height: `${critH}px` }}
+                    />
+                  )}
+                  <div
+                    className="w-1/2 bg-[#00d97e] opacity-60 transition-all group-hover:opacity-100"
+                    style={{ height: `${h}px` }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex justify-between text-[9px] text-dim mt-1 tracking-widest">
+            <span>{timeline[0]?.day?.toString().slice(0, 10)}</span>
+            <span>{timeline[timeline.length - 1]?.day?.toString().slice(0, 10)}</span>
+          </div>
+        </div>
+      )}
 
       {/* Related actors */}
       {relatedActors.length > 0 && (

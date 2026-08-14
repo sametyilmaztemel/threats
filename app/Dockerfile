@@ -15,5 +15,7 @@ ENV NODE_ENV=production
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+# pdfkit AFM fonts for PDF report export (Next standalone tracing misses these)
+COPY --from=builder /app/node_modules/pdfkit/js/data ./.next/server/app/reports/export/data
 EXPOSE 3000
 CMD ["node", "server.js"]

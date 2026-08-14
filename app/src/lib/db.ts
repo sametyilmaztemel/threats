@@ -31,6 +31,29 @@ export async function getRecentDocuments(limit = 50, aiOnly = false) {
   return rows;
 }
 
+export async function searchDocuments(search: string, limit = 50, aiOnly = false) {
+  const where = aiOnly ? 'AND ai_threat = TRUE' : '';
+  const { rows } = await query<any>(
+    `SELECT d.id, d.title, d.url, d.severity, d.published_at, d.fetched_at,
+            d.category, d.cves, d.actors, d.ai_threat, s.name as source_name, s.category as source_category
+     FROM documents d
+     LEFT JOIN sources s ON d.source_id = s.id
+     WHERE (
+       d.title ILIKE '%' || $2 || '%'
+       OR d.summary ILIKE '%' || $2 || '%'
+       OR d.content ILIKE '%' || $2 || '%'
+       OR d.author ILIKE '%' || $2 || '%'
+       OR EXISTS (SELECT 1 FROM unnest(COALESCE(d.actors, ARRAY[]::text[])) a WHERE a ILIKE '%' || $2 || '%')
+       OR EXISTS (SELECT 1 FROM unnest(COALESCE(d.cves, ARRAY[]::text[])) c WHERE c ILIKE '%' || $2 || '%')
+       OR EXISTS (SELECT 1 FROM unnest(COALESCE(d.tags, ARRAY[]::text[])) t WHERE t ILIKE '%' || $2 || '%')
+     ) ${where}
+     ORDER BY COALESCE(d.published_at, d.fetched_at) DESC
+     LIMIT $1`,
+    [limit, search]
+  );
+  return rows;
+}
+
 export async function getIOCs(limit = 100, type?: string) {
   let rows;
   if (type) {
@@ -250,6 +273,25 @@ export async function getReportTopIOCs(type?: string, limit = 25) {
      ORDER BY doc_mentions DESC, value
      LIMIT $2`,
     [type || null, limit]
+  );
+  return rows;
+}
+
+export async function getActorTimeline(name: string, days = 90) {
+  const { rows } = await query<any>(
+    `SELECT date_trunc('day', COALESCE(d.published_at, d.fetched_at))::date as day,
+            COUNT(*)::int as doc_count,
+            COUNT(*) FILTER (WHERE d.severity >= 8)::int as critical
+     FROM documents d
+     WHERE ($1 = ANY(d.actors)
+            OR EXISTS (
+              SELECT 1 FROM document_actors da
+              JOIN actors a ON a.id = da.actor_id
+              WHERE da.document_id = d.id AND LOWER(a.name) = LOWER($1)
+            ))
+       AND COALESCE(d.published_at, d.fetched_at) >= NOW() - ($2 || ' days')::interval
+     GROUP BY day ORDER BY day`,
+    [name, days]
   );
   return rows;
 }

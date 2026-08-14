@@ -72,6 +72,14 @@ export default async function ReportsPage() {
             {formatNumber(stats.total_iocs)} IOCs and {activeSources.length} active sources.
             Sector exposure, actor activity, kill-chain distribution and source health.
           </p>
+          <div className="mt-5">
+            <a
+              href="/reports/export?days=30"
+              className="inline-flex items-center gap-2 text-[11px] tracking-widest2 px-4 py-2 border border-[#00d97e] text-[#00d97e] hover:bg-[#00d97e] hover:text-bg transition-colors"
+            >
+              <span>⬇</span> EXPORT PDF REPORT
+            </a>
+          </div>
         </section>
 
         {/* Weekly digest */}

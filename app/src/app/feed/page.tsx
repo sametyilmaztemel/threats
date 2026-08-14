@@ -74,7 +74,16 @@ export default async function FeedPage({
   let pIdx = 1;
 
   if (searchParams.q && searchParams.q.trim()) {
-    conditions.push(`(d.title ILIKE $${pIdx} OR d.content ILIKE $${pIdx})`);
+    conditions.push(`(
+      d.title ILIKE $${pIdx}
+      OR d.summary ILIKE $${pIdx}
+      OR d.content ILIKE $${pIdx}
+      OR d.author ILIKE $${pIdx}
+      OR EXISTS (SELECT 1 FROM unnest(COALESCE(d.actors, ARRAY[]::text[])) a WHERE a ILIKE $${pIdx})
+      OR EXISTS (SELECT 1 FROM unnest(COALESCE(d.cves, ARRAY[]::text[])) c WHERE c ILIKE $${pIdx})
+      OR EXISTS (SELECT 1 FROM unnest(COALESCE(d.tags, ARRAY[]::text[])) t WHERE t ILIKE $${pIdx})
+      OR EXISTS (SELECT 1 FROM unnest(COALESCE(d.sectors, ARRAY[]::text[])) sec WHERE sec ILIKE $${pIdx})
+    )`);
     params.push(`%${searchParams.q.trim()}%`);
     pIdx++;
   }
