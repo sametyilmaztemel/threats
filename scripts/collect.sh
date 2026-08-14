@@ -48,4 +48,8 @@ if [ -f /app/content-backfill.ts ]; then
 else
   echo "content-backfill.ts yok — atlandı"
 fi
+
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Günlük rapor üretiliyor..."
+cd /app && REPORT_PERIOD=daily REPORT_DIR=/app/reports npx tsx generate-report.ts || echo "rapor hata (devam)"
+cd /app/collector
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Backfill tamam."

@@ -84,6 +84,12 @@ services:
       - ./scripts:/scripts:ro
       - ./app/node_modules:/app/node_modules:ro
       - ./collector/content-backfill.ts:/app/content-backfill.ts:ro
+      - ./collector/collect-advisories.ts:/app/collect-advisories.ts:ro
+      - ./collector/collect-stix.ts:/app/collect-stix.ts:ro
+      - ./collector/fetch-fulltext.ts:/app/fetch-fulltext.ts:ro
+      - ./collector/link-iocs.ts:/app/link-iocs.ts:ro
+      - ./collector/generate-report.ts:/app/generate-report.ts:ro
+      - ./reports:/app/reports
     mem_limit: 256m
     depends_on:
       postgres:
