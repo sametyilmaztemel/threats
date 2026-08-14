@@ -115,3 +115,10 @@ INSERT INTO actors (name, type, description) VALUES
 ('APT29', 'state', 'Russian SVR cyber espionage group, targets governments and think tanks.'),
 ('Scattered Spider', 'cybercrime', 'English-speaking threat actor targeting telecom and BPO sectors.'),
 ('UNC3886', 'state', 'China-linked APT targeting virtualization and networking infrastructure.');
+
+-- Turkish CTI sources (added 2026-08-14, Ö8)
+INSERT INTO sources (name, type, url, category, tier, fetch_interval_min) VALUES
+('Anadolu Ajansı Bilim-Teknoloji', 'rss', 'https://www.aa.com.tr/tr/rss/default?cat=bilim-teknoloji', 'news', 3, 60),
+('Dünya Gazetesi', 'rss', 'https://www.dunya.com/rss', 'news', 3, 60),
+('Webrazzi', 'rss', 'https://webrazzi.com/feed/', 'news', 3, 60),
+('ShiftDelete', 'rss', 'https://shiftdelete.net/feed', 'news', 3, 60);
