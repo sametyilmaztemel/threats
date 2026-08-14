@@ -1,0 +1,7 @@
+[Unit]
+Description=threats.0rce.com daily backup
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/ubuntu/threats/scripts/backup.sh

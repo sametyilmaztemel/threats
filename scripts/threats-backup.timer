@@ -1,0 +1,9 @@
+[Unit]
+Description=threats.0rce.com daily backup timer
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
