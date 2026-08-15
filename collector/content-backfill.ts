@@ -38,14 +38,14 @@ const TECH_KEYWORDS: Record<string, string[]> = {
 
 // ── 3. Sektör keyword eşleştirme ──
 const SECTOR_KEYWORDS: Record<string, string[]> = {
-  'finance': ['bank', 'financial', 'fintech', 'crypto', 'bitcoin', 'payment', 'swift', 'atm', 'card'],
-  'healthcare': ['healthcare', 'hospital', 'medical', 'clinic', 'pharma', 'health system', 'patient'],
-  'government': ['government', 'state-sponsored', 'public sector', 'agency', 'ministry', 'election'],
-  'defense': ['defense', 'military', 'missile', 'weapon', 'defence', 'army'],
-  'technology': ['software', 'tech company', 'cloud', 'saas', 'developer', 'open source', 'github', 'android', 'ios'],
-  'telecom': ['telecom', 'isp', 'mobile network', '5g', 'router', 'sim swap'],
-  'energy': ['energy', 'power grid', 'utility', 'oil', 'gas', 'electricity', 'nuclear'],
-  'retail': ['retail', 'e-commerce', 'ecommerce', 'shopping', 'store'],
+  'finance': ['bank', 'financial', 'fintech', 'crypto', 'bitcoin', 'payment', 'swift', 'atm', 'card', 'wallet', 'blockchain', 'ethereum', 'defi', 'exchange', 'trading', 'investment', 'insurance', 'remittance', 'pos', 'kyc', 'aml', 'binance', 'coinbase'],
+  'healthcare': ['healthcare', 'hospital', 'medical', 'clinic', 'pharma', 'health system', 'patient', 'vaccine', 'covid', 'emr', 'ehr', 'hipaa', 'biotech', 'diagnostic', 'telehealth', 'prescription', 'laboratory'],
+  'government': ['government', 'state-sponsored', 'public sector', 'agency', 'ministry', 'election', 'embassy', 'parliament', 'municipality', 'federal', 'national security', 'diplomatic', 'civil service', 'customs', 'tax authority', 'internal affairs'],
+  'defense': ['defense', 'military', 'missile', 'weapon', 'defence', 'army', 'navy', 'air force', 'warfare', 'cyberwar', 'battlefield', 'soldier', 'intelligence agency', 'espionage', 'drone strike', 'munitions'],
+  'technology': ['software', 'tech company', 'cloud', 'saas', 'developer', 'open source', 'github', 'android', 'ios', 'api', 'kubernetes', 'docker', 'linux', 'windows', 'server', 'database', 'framework', 'npm', 'pypi', 'vulnerability scanner', 'firmware', 'router firmware', 'cisco', 'microsoft', 'apple', 'google'],
+  'telecom': ['telecom', 'isp', 'mobile network', '5g', 'router', 'sim swap', 'subscriber', 'roaming', 'sms', 'voip', 'broadband', 'fiber', 'cell tower', 'gsm', 'lte', 'mms'],
+  'energy': ['energy', 'power grid', 'utility', 'oil', 'gas', 'electricity', 'nuclear', 'pipeline', 'power plant', 'grid operator', 'smart meter', 'refinery', 'renewable', 'wind farm', 'scada'],
+  'retail': ['retail', 'e-commerce', 'ecommerce', 'shopping', 'store', 'marketplace', 'consumer', 'loyalty', 'checkout', 'inventory', 'supply chain', 'logistics', 'warehouse', 'delivery', 'food delivery'],
 };
 
 // ── 4. AI tehdit kategorisi keyword eşleştirme ──

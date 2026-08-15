@@ -83,7 +83,40 @@ async function main() {
     if (docCount % 200 === 0) log(`${docCount} doküman işlendi...`);
   }
 
-  // 4) Aktör document_count güncelle
+  // 4) Teknik ilişkili aktör önerisi (düşük güven — "ilişkili olabilir")
+  //    Dokümanda ATT&CK tekniği geçiyorsa, o tekniği kullanan aktörleri ekle
+  //    (confidence 0.4 — yanlış pozitif riski düşük tutulur)
+  //    Kaynak: actors.ttps array'inden teknik→aktör ters haritası
+  const techActors = await pool.query<any>(
+    `SELECT ttp AS attack_id, a.name AS actor_name, a.id AS actor_id
+     FROM actors a, unnest(a.ttps) ttp
+     WHERE a.ttps IS NOT NULL AND array_length(a.ttps, 1) > 0`
+  ).catch(() => ({ rows: [] }));
+  log(`teknik-aktör ilişkisi: ${techActors.rows.length}`);
+
+  let techLinked = 0;
+  for (const d of docs) {
+    const techs = (await pool.query<any>(`SELECT techniques FROM documents WHERE id=$1`, [d.id])).rows[0]?.techniques || [];
+    if (!techs.length) continue;
+    const techSet = new Set(techs.map((t: string) => t.toUpperCase()));
+    // Doküman zaten hangi aktörlere sahip?
+    const cur = (await pool.query<any>(`SELECT actors FROM documents WHERE id=$1`, [d.id])).rows[0]?.actors || [];
+    const curSet = new Set(cur.map((a: string) => a.toLowerCase()));
+    for (const rel of techActors.rows) {
+      if (techSet.has(rel.attack_id.toUpperCase()) && !curSet.has(rel.actor_name.toLowerCase())) {
+        await pool.query(
+          `INSERT INTO document_actors (document_id, actor_id, confidence) VALUES ($1, $2, 0.4)
+           ON CONFLICT DO NOTHING`,
+          [d.id, rel.actor_id]
+        ).catch(() => {});
+        techLinked++;
+      }
+    }
+    if (techLinked % 500 === 0 && techLinked > 0) log(`teknik ilişkili: ${techLinked}...`);
+  }
+  log(`teknik ilişkili eklenen: ${techLinked}`);
+
+  // 5) Aktör document_count güncelle
   const { rows: counts } = await pool.query<any>(
     `SELECT actor_id, COUNT(*)::int as cnt FROM document_actors GROUP BY actor_id`
   );
@@ -92,7 +125,7 @@ async function main() {
   }
   log(`document_count güncellendi: ${counts.length} aktör`);
 
-  log(`TAMAM: ${linked} bağlantı, ${docCount} doküman güncellendi`);
+  log(`TAMAM: ${linked} aliases bağlantı, ${docCount} doküman + ${techLinked} teknik ilişkili`);
   await pool.end();
 }
 
