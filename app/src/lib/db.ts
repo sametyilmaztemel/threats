@@ -346,9 +346,9 @@ export async function getGraphData() {
   );
   const edges = await query<any>(
     `SELECT DISTINCT a.name as source, t.name as target
-     FROM documents d,
-          unnest(d.actors) as a(name),
-          unnest(d.techniques) as t(name)
+     FROM documents d
+     CROSS JOIN LATERAL unnest(d.actors) a(name)
+     CROSS JOIN LATERAL unnest(d.techniques) t(name)
      WHERE d.actors IS NOT NULL AND d.techniques IS NOT NULL`
   );
   const nodes = [

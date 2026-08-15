@@ -76,4 +76,8 @@ cd /app/collector
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Haftalık bülten kontrolü (Pazar)..."
 cd /app && npx tsx email-newsletter.ts || echo "newsletter hata (devam)"
 cd /app/collector
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Graf edge'leri güncelleniyor..."
+cd /app && npx tsx build-graph.ts || echo "build-graph hata (devam)"
+cd /app/collector
+
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Backfill tamam."
