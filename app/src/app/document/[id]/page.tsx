@@ -5,6 +5,7 @@ import Breadcrumb from '@/components/layout/Breadcrumb';
 import TLPBadge from '@/components/ui/TLPBadge';
 import SeverityGauge from '@/components/ui/SeverityGauge';
 import CopyButton from '@/components/ui/CopyButton';
+import BookmarkButton from '@/components/ui/BookmarkButton';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 
@@ -206,6 +207,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
               {doc.word_count > 0 && <> · {doc.word_count} words</>}
             </div>
             <div className="flex items-center gap-2 mt-4">
+              <BookmarkButton type="document" id={doc.id} title={doc.title} />
               <CopyButton value={JSON.stringify(doc, null, 2)} label="COPY JSON" />
               <a
                 href={doc.url}

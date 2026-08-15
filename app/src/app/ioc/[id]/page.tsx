@@ -1,5 +1,6 @@
 import { getIOC } from '@/lib/db';
 import { relativeTime } from '@/lib/format';
+import BookmarkButton from '@/components/ui/BookmarkButton';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
@@ -47,7 +48,10 @@ export default async function IOCPage({ params }: { params: { id: string } }) {
             <span>{tagValue(ioc.source_name)}</span>
             {ioc.first_seen && <span>FIRST SEEN {new Date(ioc.first_seen).toISOString().slice(0, 10)}</span>}
             {ioc.last_seen && <span>LAST SEEN {relativeTime(ioc.last_seen)}</span>}
-            <span className="ml-auto text-dim">ID #{ioc.id}</span>
+            <span className="ml-auto flex items-center gap-2 text-dim">
+              <BookmarkButton type="ioc" id={ioc.id} title={ioc.value} />
+              ID #{ioc.id}
+            </span>
           </div>
         </div>
 

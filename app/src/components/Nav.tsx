@@ -13,7 +13,8 @@ const links = [
   { href: '/trends', label: 'TRENDS' },
   { href: '/ai-threats', label: 'AI' },
   { href: '/sources', label: 'SOURCES' },
-  { href: '/stats', label: 'STATS' }
+  { href: '/stats', label: 'STATS' },
+  { href: '/bookmarks', label: '☆ BOOKMARKS' }
 ];
 
 export default function Nav() {

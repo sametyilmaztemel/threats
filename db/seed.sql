@@ -122,3 +122,4 @@ INSERT INTO sources (name, type, url, category, tier, fetch_interval_min) VALUES
 ('Dünya Gazetesi', 'rss', 'https://www.dunya.com/rss', 'news', 3, 60),
 ('Webrazzi', 'rss', 'https://webrazzi.com/feed/', 'news', 3, 60),
 ('ShiftDelete', 'rss', 'https://shiftdelete.net/feed', 'news', 3, 60);
+('A Haber Teknoloji', 'rss', 'https://www.ahaber.com.tr/rss/teknoloji.xml', 'news', 3, 60);

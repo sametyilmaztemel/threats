@@ -68,4 +68,12 @@ cd /app/collector
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Ölü feed tespiti..."
 cd /app && npx tsx dead-feed-alert.ts || echo "dead-feed hata (devam)"
 cd /app/collector
+
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Kalite skoru hesaplama..."
+cd /app && npx tsx quality-score.ts || echo "quality hata (devam)"
+cd /app/collector
+
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Haftalık bülten kontrolü (Pazar)..."
+cd /app && npx tsx email-newsletter.ts || echo "newsletter hata (devam)"
+cd /app/collector
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Backfill tamam."

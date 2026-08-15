@@ -57,6 +57,7 @@ interface SearchParams {
   source?: string;
   tlp?: string;
   ai?: string;
+  quality?: string;
   page?: string;
 }
 
@@ -78,6 +79,15 @@ export default async function FeedPage({
     conditions.push(`(d.search_vector @@ plainto_tsquery('english', $${pIdx}) OR d.title ILIKE $${pIdx} OR d.summary ILIKE $${pIdx})`);
     params.push(`${searchParams.q.trim()}`);
     pIdx++;
+  }
+
+  // Kalite filtresi: quality=high (≥60) | quality=full (≥80)
+  if (searchParams.quality === 'high') {
+    conditions.push(`d.quality_score >= $${pIdx++}`);
+    params.push(60);
+  } else if (searchParams.quality === 'full') {
+    conditions.push(`d.quality_score >= $${pIdx++}`);
+    params.push(80);
   }
 
   const sevVals = severityValues(searchParams.sev);
@@ -188,7 +198,7 @@ export default async function FeedPage({
   const docsQuery = `
     SELECT d.id, d.title, d.url, d.summary, d.author, d.published_at,
            d.fetched_at, d.severity, d.category, d.cves, d.actors,
-           d.techniques, d.ai_threat, d.tlp, d.word_count,
+           d.techniques, d.ai_threat, d.tlp, d.word_count, d.quality_score,
            d.content,
            s.name as source_name, s.tier as source_tier
     FROM documents d
@@ -314,6 +324,7 @@ export default async function FeedPage({
     ai: searchParams.ai === 'true' || searchParams.ai === 'false'
       ? new Set([searchParams.ai])
       : new Set<string>(),
+    quality: new Set(splitCsv(searchParams.quality)),
   };
 
   // ---- category facets ----
@@ -396,6 +407,12 @@ export default async function FeedPage({
   );
 
   const sevCounts = sevFacetResult.rows[0] || ({} as any);
+
+  // Kalite sayıları (quality facet için)
+  const qualityCounts = {
+    high: await query<{ c: string }>(`SELECT COUNT(*)::int as c FROM documents WHERE quality_score >= 60`).then(r => Number(r.rows[0]?.c || 0)),
+    full: await query<{ c: string }>(`SELECT COUNT(*)::int as c FROM documents WHERE quality_score >= 80`).then(r => Number(r.rows[0]?.c || 0)),
+  };
   const aiCounts = aiFacetResult.rows[0] || ({} as any);
 
   const facets = [
@@ -498,6 +515,14 @@ export default async function FeedPage({
           count: Number(r.count),
           selected: selectedSet.tlp.has(r.value),
         })),
+    },
+    {
+      name: 'quality',
+      label: 'QUALITY',
+      values: [
+        { value: 'high', label: 'High (≥60)', count: qualityCounts.high, selected: selectedSet.quality.has('high') },
+        { value: 'full', label: 'Full (≥80)', count: qualityCounts.full, selected: selectedSet.quality.has('full') },
+      ],
     },
   ].filter(f => f.values.length > 0);
 

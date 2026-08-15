@@ -3,6 +3,7 @@ import { query } from '@/lib/db';
 import Breadcrumb from '@/components/layout/Breadcrumb';
 import PageHeader from '@/components/layout/PageHeader';
 import EmptyState from '@/components/ui/EmptyState';
+import BookmarkButton from '@/components/ui/BookmarkButton';
 import { format } from '@/lib/format';
 import type { Metadata } from 'next';
 
@@ -69,9 +70,12 @@ export default async function TechniquePage({ params }: { params: { id: string }
         subtitle={`${docs.length} intelligence report${docs.length === 1 ? '' : 's'} reference this technique`}
         actions={
           technique ? (
-            <div className="text-right space-y-1 text-[11px] font-mono">
-              <div>ID: {techId}</div>
-              {technique.tactic && <div>PHASE: {technique.tactic}</div>}
+            <div className="flex items-center justify-end gap-3">
+              <BookmarkButton type="technique" id={techId} title={technique.name || techId} />
+              <div className="text-right space-y-1 text-[11px] font-mono">
+                <div>ID: {techId}</div>
+                {technique.tactic && <div>PHASE: {technique.tactic}</div>}
+              </div>
             </div>
           ) : null
         }

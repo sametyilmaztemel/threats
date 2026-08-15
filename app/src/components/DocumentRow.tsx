@@ -26,6 +26,15 @@ export default function DocumentRow({ doc }: { doc: any }) {
               <span key={a} className="tag">{a}</span>
             ))}
             {doc.ai_threat && <span className="tag" style={{ color: '#ff9500', borderColor: '#ff9500' }}>AI</span>}
+            {doc.quality_score != null && doc.quality_score >= 60 && (
+              <span
+                className="tag"
+                style={{ color: doc.quality_score >= 80 ? '#00d97e' : '#ffd60a', borderColor: doc.quality_score >= 80 ? '#00d97e' : '#ffd60a' }}
+                title={`Quality score ${doc.quality_score}/100`}
+              >
+                Q{doc.quality_score}
+              </span>
+            )}
           </div>
         </div>
         <div className="col-span-6 sm:col-span-2 text-[10px] tracking-widest2 text-dim pt-1 truncate order-3">

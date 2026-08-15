@@ -5,6 +5,7 @@ import PageHeader from '@/components/layout/PageHeader';
 import EmptyState from '@/components/ui/EmptyState';
 import TLPBadge from '@/components/ui/TLPBadge';
 import SeverityGauge from '@/components/ui/SeverityGauge';
+import BookmarkButton from '@/components/ui/BookmarkButton';
 import { format } from '@/lib/format';
 import type { Metadata } from 'next';
 
@@ -68,9 +69,12 @@ export default async function ActorPage({ params }: { params: { slug: string } }
         subtitle={actor?.description || `Intelligence corpus on ${name}`}
         actions={
           actor ? (
-            <div className="text-[11px] font-mono space-y-1 text-right">
-              {actor.origin_country && <div>{actor.origin_country}</div>}
-              {actor.first_seen && <div>First seen: {String(actor.first_seen).split('T')[0]}</div>}
+            <div className="flex items-center justify-end gap-3">
+              <BookmarkButton type="actor" id={name} title={name} />
+              <div className="text-[11px] font-mono space-y-1 text-right">
+                {actor.origin_country && <div>{actor.origin_country}</div>}
+                {actor.first_seen && <div>First seen: {String(actor.first_seen).split('T')[0]}</div>}
+              </div>
             </div>
           ) : null
         }

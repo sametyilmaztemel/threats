@@ -5,6 +5,7 @@ import PageHeader from '@/components/layout/PageHeader';
 import EmptyState from '@/components/ui/EmptyState';
 import SeverityGauge from '@/components/ui/SeverityGauge';
 import CopyButton from '@/components/ui/CopyButton';
+import BookmarkButton from '@/components/ui/BookmarkButton';
 import { format } from '@/lib/format';
 import type { Metadata } from 'next';
 
@@ -88,7 +89,7 @@ export default async function CVEPage({ params }: { params: { id: string } }) {
           enrichment?.description ||
           `${docs.length} intelligence report${docs.length === 1 ? '' : 's'} reference this CVE`
         }
-        actions={<CopyButton value={cveId} label="COPY CVE-ID" />}
+        actions={<div className="flex items-center gap-2"><BookmarkButton type="cve" id={cveId} title={cveId} /><CopyButton value={cveId} label="COPY CVE-ID" /></div>}
       />
 
       {/* Enrichment grid */}
