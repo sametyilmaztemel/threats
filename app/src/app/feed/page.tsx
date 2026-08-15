@@ -762,6 +762,11 @@ function DocCard({ doc }: { doc: any }) {
 
       <div className="text-[11px] text-dim font-mono mb-3">
         {doc.source_name || '—'} · T{doc.source_tier ?? '?'}{doc.published_at ? ' · ' + new Date(doc.published_at).toISOString().split('T')[0] : ''}{doc.word_count > 0 ? ` · ${doc.word_count} words` : ''}{doc.ai_threat ? ' · AI THREAT' : ''}
+        {doc.quality_score != null && doc.quality_score >= 60 && (
+          <span className={doc.quality_score >= 80 ? 'text-[#00d97e]' : 'text-[#ffd60a]'} title={`Quality score ${doc.quality_score}/100`}>
+            {' · '}Q{doc.quality_score}
+          </span>
+        )}
       </div>
 
       {excerpt && (
