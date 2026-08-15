@@ -46,10 +46,19 @@ async function main() {
     for (const adv of advisories) {
       const ghsaId = adv.ghsa_id;
       const cveId = adv.cve_id;
-      // Linux kernel gibi template summary'lerde (113 kez aynı başlık) CVE ID ile zenginleştir
-      const title = cveId
-        ? `${adv.summary} (${ghsaId}) [${cveId}]`
-        : `${adv.summary} (${ghsaId})`;
+      // Template summary'lerde (Linux kernel, IBM Db2 vb. — 100+ kez aynı prefix)
+      // CVE ID'yi başa al ki feed'de ayırt edilebilsin:
+      // "In the Linux kernel, the following vulnerability has been resolved: X (GHSA-…) [CVE-…]"
+      // → "[CVE-…] X"
+      let title = `${adv.summary} (${ghsaId})`;
+      if (cveId) {
+        title = `${adv.summary} (${ghsaId}) [${cveId}]`;
+        // "In the Linux kernel, the following vulnerability has been resolved:" öneki varsa kısalt
+        title = title.replace(
+          /^In the Linux kernel, the following vulnerability has been resolved: (.*?) \(GHSA-[^)]+\) \[CVE-(\d+-\d+)\]$/,
+          '[CVE-$2] $1'
+        );
+      }
       const url = adv.html_url || `https://github.com/advisories/${ghsaId}`;
       const severity = adv.severity; // 'critical' | 'high' | 'moderate' | 'low'
       const sevNum = severity === 'critical' ? 9 : severity === 'high' ? 7 : severity === 'moderate' ? 5 : 2;
