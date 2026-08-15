@@ -98,6 +98,13 @@ async function ingestRSS(source: any) {
       // Genel haber kaynaklarında konu filtresi: siber güvenlik ile ilgili değilse atla
       if (needsSecurityFilter(source.name) && !isSecurityRelevant(text)) continue;
 
+      // Aynı kaynaktan aynı başlık tekrarı: zaten varsa atla (URL değişse bile)
+      const dup = await pool.query(
+        `SELECT id FROM documents WHERE source_id=$1 AND LOWER(LEFT(title,80)) = LOWER(LEFT($2,80)) LIMIT 1`,
+        [source.id, item.title]
+      );
+      if (dup.rowCount && dup.rowCount > 0) continue;
+
       const aiThreat = detectAI(text);
       const cves = extractCVEs(text);
       const severity = detectSeverity(text);

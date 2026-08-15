@@ -196,10 +196,11 @@ export default async function FeedPage({
 
   // Arama varsa ts_rank ilgililik sıralaması, yoksa tarih
   // q her zaman ilk parametre ($1) — whereClause'da en başta eklenir
+  // id DESC tie-break: aynı timestamp'li dokümanlar pagination'da kaymasın
   const hasSearch = searchParams.q && searchParams.q.trim();
   const orderBy = hasSearch
-    ? `ORDER BY ts_rank(d.search_vector, plainto_tsquery('english', $1)) DESC, COALESCE(d.published_at, d.fetched_at) DESC`
-    : `ORDER BY COALESCE(d.published_at, d.fetched_at) DESC`;
+    ? `ORDER BY ts_rank(d.search_vector, plainto_tsquery('english', $1)) DESC, COALESCE(d.published_at, d.fetched_at) DESC, d.id DESC`
+    : `ORDER BY COALESCE(d.published_at, d.fetched_at) DESC, d.id DESC`;
 
   const docsQuery = `
     SELECT d.id, d.title, d.url, d.summary, d.author, d.published_at,

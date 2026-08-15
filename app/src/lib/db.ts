@@ -28,7 +28,7 @@ export async function getRecentDocuments(limit = 50, aiOnly = false, aiCategory?
      LEFT JOIN sources s ON d.source_id = s.id
      ${catJoin}
      ${where}
-     ORDER BY COALESCE(d.published_at, d.fetched_at) DESC
+     ORDER BY COALESCE(d.published_at, d.fetched_at) DESC, d.id DESC
      LIMIT $1`,
     aiCategory ? [limit, aiCategory] : [limit]
   );

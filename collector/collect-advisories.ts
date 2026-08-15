@@ -46,7 +46,10 @@ async function main() {
     for (const adv of advisories) {
       const ghsaId = adv.ghsa_id;
       const cveId = adv.cve_id;
-      const title = `${adv.summary} (${ghsaId})`;
+      // Linux kernel gibi template summary'lerde (113 kez aynı başlık) CVE ID ile zenginleştir
+      const title = cveId
+        ? `${adv.summary} (${ghsaId}) [${cveId}]`
+        : `${adv.summary} (${ghsaId})`;
       const url = adv.html_url || `https://github.com/advisories/${ghsaId}`;
       const severity = adv.severity; // 'critical' | 'high' | 'moderate' | 'low'
       const sevNum = severity === 'critical' ? 9 : severity === 'high' ? 7 : severity === 'moderate' ? 5 : 2;
