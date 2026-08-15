@@ -53,7 +53,10 @@ async function main() {
       let title = `${adv.summary} (${ghsaId})`;
       if (cveId) {
         title = `${adv.summary} (${ghsaId}) [${cveId}]`;
-        // "In the Linux kernel, the following vulnerability has been resolved:" öneki varsa kısalt
+        // Template önekleri (Linux kernel, IBM Db2 vb.) CVE ID ile öne al:
+        // "In the Linux kernel, ...: X (GHSA-…) [CVE-…]" → "[CVE-…] X"
+        // Önce newline'ları temizle (GHSA summary'leri çok satırlı geliyor)
+        title = title.replace(/\s+/g, ' ');
         title = title.replace(
           /^In the Linux kernel, the following vulnerability has been resolved: (.*?) \(GHSA-[^)]+\) \[CVE-(\d+-\d+)\]$/,
           '[CVE-$2] $1'
