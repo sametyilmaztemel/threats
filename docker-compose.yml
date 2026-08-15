@@ -100,6 +100,7 @@ services:
       - ./collector/daily-stats.ts:/app/daily-stats.ts:ro
       - ./collector/push-misp.ts:/app/push-misp.ts:ro
       - ./collector/llm-summary.ts:/app/llm-summary.ts:ro
+      - ./collector/sync-cves.ts:/app/sync-cves.ts:ro
       - ./reports:/app/reports
     mem_limit: 256m
     depends_on:

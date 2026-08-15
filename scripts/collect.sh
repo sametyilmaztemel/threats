@@ -96,4 +96,8 @@ echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] LLM özet (opsiyonel)..."
 cd /app && npx tsx llm-summary.ts || echo "llm-summary hata (devam)"
 cd /app/collector
 
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] CVE delta güncelleme (son 24 saat)..."
+cd /app && CVE_DELTA_HOURS=24 npx tsx sync-cves.ts >> /tmp/cve-sync-delta.log 2>&1 || echo "cve-sync hata (devam)"
+cd /app/collector
+
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Backfill tamam."
