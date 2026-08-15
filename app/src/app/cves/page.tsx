@@ -114,6 +114,7 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
             <option value="">SORT: CVSS</option>
             <option value="risk">RISK (EPSS×CVSS)</option>
             <option value="kev">CISA KEV FIRST</option>
+            <option value="date">NEWEST FIRST</option>
           </select>
           <button type="submit" className="px-4 py-2 text-[10px] tracking-widest2 border border-[#00d97e] text-[#00d97e] hover:bg-[#00d97e] hover:text-bg transition-colors">
             FILTER

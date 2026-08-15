@@ -282,12 +282,14 @@ export async function getCVEList(page = 1, pageSize = 50, search?: string, minCv
     pIdx++;
   }
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
-  // sortBy: 'risk' (EPSS*CVSS combo) | 'cvss' (default) | 'kev' (KEV önce)
+  // sortBy: 'risk' (EPSS*CVSS combo) | 'cvss' (default) | 'kev' (KEV önce) | 'date' (yeni önce)
   const orderBy = sortBy === 'risk'
     ? `ORDER BY COALESCE(ce.epss,0) * COALESCE(ce.cvss_v3,0) DESC, ce.cve_id`
     : sortBy === 'kev'
       ? `ORDER BY ce.in_kev DESC, ce.cvss_v3 DESC NULLS LAST, ce.cve_id`
-      : `ORDER BY ce.cvss_v3 DESC NULLS LAST, ce.cve_id`;
+      : sortBy === 'date'
+        ? `ORDER BY ce.published_date DESC NULLS LAST, ce.cve_id`
+        : `ORDER BY ce.cvss_v3 DESC NULLS LAST, ce.cve_id`;
 
   const { rows } = await query<any>(
     `SELECT ce.cve_id, ce.cvss_v3, ce.epss, ce.in_kev, ce.description, ce.vendor, ce.product, ce.published_date, ce.last_enriched_at,
