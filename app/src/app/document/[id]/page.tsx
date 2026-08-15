@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getDocument, getRelatedDocuments } from '@/lib/db';
+import { getDocument, getRelatedDocuments, getSimilarDocuments } from '@/lib/db';
 import TwoColumn from '@/components/layout/TwoColumn';
 import Breadcrumb from '@/components/layout/Breadcrumb';
 import TLPBadge from '@/components/ui/TLPBadge';
@@ -38,6 +38,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
 
   const tierNum = String(doc.source_tier ?? '?');
   const related = await getRelatedDocuments(id, 10);
+  const similar = await getSimilarDocuments(id, 6);
   // Gerçek metrik: kaynak güvenilirlik yüzdesi (tier bazlı) — uydurma değil
   const confPct = doc.confidence != null
     ? Math.round(doc.confidence * 100)
@@ -261,6 +262,28 @@ export default async function DocumentPage({ params }: { params: { id: string } 
                     <div className="text-[13px] font-light leading-tight group-hover:text-fg break-words">{r.title}</div>
                     <div className="text-[10px] text-dim mt-1 font-mono">
                       {r.source_name} · {fmtDate(r.published_at || r.fetched_at)}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Similar by content */}
+          {similar.length > 0 && (
+            <div className="border-t border-line pt-6 md:pt-8">
+              <div className="text-[10px] tracking-widest2 text-dim mb-4">SIMILAR BY CONTENT ({similar.length})</div>
+              <div className="space-y-1">
+                {similar.map((r: any) => (
+                  <Link
+                    key={r.id}
+                    href={`/document/${r.id}`}
+                    className="block p-3 border border-line hover:border-fg transition-colors group"
+                  >
+                    <div className="text-[13px] font-light leading-tight group-hover:text-fg break-words">{r.title}</div>
+                    <div className="text-[10px] text-dim mt-1 font-mono">
+                      {r.source_name} · {fmtDate(r.published_at || r.fetched_at)}
+                      <span className="text-[#00d97e] ml-2">{(r.sim * 100).toFixed(0)}%</span>
                     </div>
                   </Link>
                 ))}

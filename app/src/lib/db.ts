@@ -220,6 +220,31 @@ export async function getRelatedDocuments(docId: number, limit = 10) {
   return r.rows;
 }
 
+export async function getSimilarDocuments(docId: number, limit = 6) {
+  // FTS benzerlik: d1 vektöründen terim çıkar → tsquery → d2'ye rank uygula
+  const r = await query<any>(
+    `WITH target AS (
+       SELECT search_vector FROM documents WHERE id = $1
+     )
+     SELECT d2.id, d2.title, d2.url, d2.severity, d2.ai_threat, d2.published_at,
+            s.name as source_name,
+            ts_rank(d2.search_vector, q.q) as sim
+     FROM target
+     CROSS JOIN LATERAL (
+       SELECT to_tsquery('english', string_agg(lexeme || ':*', ' & ')) AS q
+       FROM (SELECT DISTINCT lexeme FROM unnest(target.search_vector::tsvector) AS t(lexeme) LIMIT 12) x
+     ) q
+     JOIN documents d2 ON d2.id != $1
+     LEFT JOIN sources s ON d2.source_id = s.id
+     WHERE d2.search_vector IS NOT NULL AND q.q IS NOT NULL
+       AND d2.word_count > 50
+     ORDER BY sim DESC
+     LIMIT $2`,
+    [docId, limit]
+  );
+  return r.rows;
+}
+
 export async function getCVEs(limit = 100) {
   const { rows } = await query<any>(
     `SELECT d.id, d.title, d.url, d.severity, d.published_at, d.fetched_at,
@@ -411,6 +436,40 @@ export async function getReportTopIOCs(type?: string, limit = 25) {
      ORDER BY doc_mentions DESC, value
      LIMIT $2`,
     [type || null, limit]
+  );
+  return rows;
+}
+
+export async function getActorCoMentions(actorName: string, limit = 8) {
+  // Bu aktörle aynı dokümanda geçen diğer aktörler
+  const { rows } = await query<any>(
+    `SELECT other AS actor_name, COUNT(*)::int as cnt FROM (
+       SELECT a2 AS other
+       FROM documents d, unnest(d.actors) a1, unnest(d.actors) a2
+       WHERE LOWER(a1) = LOWER($1) AND LOWER(a2) != LOWER($1)
+     ) sub
+     GROUP BY other ORDER BY cnt DESC LIMIT $2`,
+    [actorName, limit]
+  );
+  return rows;
+}
+
+export async function getActorDocs(actorName: string, limit = 20) {
+  const { rows } = await query<any>(
+    `SELECT d.id, d.title, d.url, d.severity, d.published_at, d.fetched_at,
+            d.kill_chain_phase, d.ai_threat,
+            s.name as source_name
+     FROM documents d
+     LEFT JOIN sources s ON d.source_id = s.id
+     WHERE LOWER($1) = ANY(SELECT LOWER(a) FROM unnest(d.actors) a)
+        OR EXISTS (
+          SELECT 1 FROM document_actors da
+          JOIN actors a2 ON a2.id = da.actor_id
+          WHERE da.document_id = d.id AND LOWER(a2.name) = LOWER($1)
+        )
+     ORDER BY COALESCE(d.published_at, d.fetched_at) DESC
+     LIMIT $2`,
+    [actorName, limit]
   );
   return rows;
 }

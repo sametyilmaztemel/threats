@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { query, getActorTimeline } from '@/lib/db';
+import { query, getActorTimeline, getActorCoMentions } from '@/lib/db';
 import Breadcrumb from '@/components/layout/Breadcrumb';
 import PageHeader from '@/components/layout/PageHeader';
 import EmptyState from '@/components/ui/EmptyState';
@@ -45,27 +45,8 @@ export default async function ActorPage({ params }: { params: { slug: string } }
   );
   const docs = docsRes.rows;
 
-  // Fetch related actors (co-mentioned)
-  const relatedRes = await query<any>(
-    `SELECT actor_name, COUNT(*)::int as cnt FROM (
-       SELECT unnest(d2.actors) as actor_name
-       FROM documents d1
-       JOIN documents d2 ON d2.id != d1.id
-       WHERE ($1 = ANY(d1.actors)
-              OR EXISTS (
-                SELECT 1 FROM document_actors da
-                JOIN actors a ON a.id = da.actor_id
-                WHERE da.document_id = d1.id AND LOWER(a.name) = LOWER($1)
-              ))
-         AND d2.actors IS NOT NULL
-     ) sub
-     WHERE actor_name IS NOT NULL AND actor_name != $1
-     GROUP BY actor_name
-     ORDER BY cnt DESC
-     LIMIT 10`,
-    [name]
-  );
-  const relatedActors = relatedRes.rows;
+  // Fetch related actors (co-mentioned — same document, doğru sorgu)
+  const relatedActors = await getActorCoMentions(name, 10);
 
   // Actor activity timeline (last 90 days)
   const timeline = await getActorTimeline(name, 90);
