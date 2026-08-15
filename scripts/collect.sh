@@ -80,4 +80,20 @@ echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Graf edge'leri güncelleniyor..."
 cd /app && npx tsx build-graph.ts || echo "build-graph hata (devam)"
 cd /app/collector
 
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] CVE-doküman eşleştirme..."
+cd /app && npx tsx link-cves.ts || echo "link-cves hata (devam)"
+cd /app/collector
+
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Günlük snapshot..."
+cd /app && npx tsx daily-stats.ts || echo "daily-stats hata (devam)"
+cd /app/collector
+
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] MISP/STIX push (opsiyonel)..."
+cd /app && REPORT_DIR=/app/reports npx tsx push-misp.ts || echo "push-misp hata (devam)"
+cd /app/collector
+
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] LLM özet (opsiyonel)..."
+cd /app && npx tsx llm-summary.ts || echo "llm-summary hata (devam)"
+cd /app/collector
+
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Backfill tamam."

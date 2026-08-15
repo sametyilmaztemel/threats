@@ -58,6 +58,7 @@ interface SearchParams {
   tlp?: string;
   ai?: string;
   quality?: string;
+  lang?: string;
   page?: string;
 }
 
@@ -88,6 +89,11 @@ export default async function FeedPage({
   } else if (searchParams.quality === 'full') {
     conditions.push(`d.quality_score >= $${pIdx++}`);
     params.push(80);
+  }
+
+  // Dil filtresi: lang=tr (kaynak dili Türkçe olan içerik)
+  if (searchParams.lang === 'tr') {
+    conditions.push(`s.language = 'tr'`);
   }
 
   const sevVals = severityValues(searchParams.sev);
@@ -325,6 +331,7 @@ export default async function FeedPage({
       ? new Set([searchParams.ai])
       : new Set<string>(),
     quality: new Set(splitCsv(searchParams.quality)),
+    lang: new Set(splitCsv(searchParams.lang)),
   };
 
   // ---- category facets ----
@@ -412,6 +419,10 @@ export default async function FeedPage({
   const qualityCounts = {
     high: await query<{ c: string }>(`SELECT COUNT(*)::int as c FROM documents WHERE quality_score >= 60`).then(r => Number(r.rows[0]?.c || 0)),
     full: await query<{ c: string }>(`SELECT COUNT(*)::int as c FROM documents WHERE quality_score >= 80`).then(r => Number(r.rows[0]?.c || 0)),
+  };
+  // Dil sayıları (lang facet için)
+  const langCounts = {
+    tr: await query<{ c: string }>(`SELECT COUNT(*)::int as c FROM documents d JOIN sources s ON d.source_id = s.id WHERE s.language = 'tr'`).then(r => Number(r.rows[0]?.c || 0)),
   };
   const aiCounts = aiFacetResult.rows[0] || ({} as any);
 
@@ -522,6 +533,13 @@ export default async function FeedPage({
       values: [
         { value: 'high', label: 'High (≥60)', count: qualityCounts.high, selected: selectedSet.quality.has('high') },
         { value: 'full', label: 'Full (≥80)', count: qualityCounts.full, selected: selectedSet.quality.has('full') },
+      ],
+    },
+    {
+      name: 'lang',
+      label: 'LANGUAGE',
+      values: [
+        { value: 'tr', label: 'Türkçe', count: langCounts.tr, selected: selectedSet.lang.has('tr') },
       ],
     },
   ].filter(f => f.values.length > 0);

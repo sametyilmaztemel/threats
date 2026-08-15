@@ -96,6 +96,10 @@ services:
       - ./collector/quality-score.ts:/app/quality-score.ts:ro
       - ./collector/email-newsletter.ts:/app/email-newsletter.ts:ro
       - ./collector/build-graph.ts:/app/build-graph.ts:ro
+      - ./collector/link-cves.ts:/app/link-cves.ts:ro
+      - ./collector/daily-stats.ts:/app/daily-stats.ts:ro
+      - ./collector/push-misp.ts:/app/push-misp.ts:ro
+      - ./collector/llm-summary.ts:/app/llm-summary.ts:ro
       - ./reports:/app/reports
     mem_limit: 256m
     depends_on:
