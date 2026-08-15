@@ -54,7 +54,7 @@ export default async function ActorPage({ params }: { params: { slug: string } }
   const maxTimeline = timeline.length ? Math.max(...timeline.map((t: any) => t.doc_count)) : 1;
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
+    <div className="max-w-[1100px] mx-auto px-5 md:px-10 lg:px-12 py-6 md:py-12">
       <Breadcrumb
         items={[
           { label: '/home', href: '/' },

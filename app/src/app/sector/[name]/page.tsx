@@ -33,7 +33,7 @@ export default async function SectorPage({ params }: { params: { name: string } 
   const color = SECTOR_COLORS[sector] || '#00d97e';
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
+    <div className="max-w-[1100px] mx-auto px-5 md:px-10 lg:px-12 py-6 md:py-12">
       <Breadcrumb items={[{ label: '/home', href: '/' }, { label: '/reports', href: '/reports' }, { label: `/sector/${sector}` }]} />
 
       {/* Hero */}

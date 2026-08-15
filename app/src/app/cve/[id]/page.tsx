@@ -73,7 +73,7 @@ export default async function CVEPage({ params }: { params: { id: string } }) {
   const epss = enrichment?.epss != null ? Number(enrichment.epss) : (docs.find((d: any) => d.epss != null)?.epss ?? null);
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-12">
+    <div className="max-w-[1100px] mx-auto px-5 md:px-10 lg:px-12 py-6 md:py-12">
       <Breadcrumb
         items={[
           { label: '/home', href: '/' },

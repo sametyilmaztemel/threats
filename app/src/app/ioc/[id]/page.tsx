@@ -27,7 +27,7 @@ export default async function IOCPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="min-h-screen pb-16 md:pb-32">
-      <article className="max-w-[900px] mx-auto px-4 md:px-8 pt-6 md:pt-12">
+      <article className="max-w-[900px] mx-auto px-5 md:px-10 lg:px-12 pt-6 md:pt-12">
         {/* Breadcrumb */}
         <div className="text-[10px] tracking-widest2 text-dim mb-6 flex gap-2">
           <Link href="/" className="hover:text-fg">/HOME</Link>

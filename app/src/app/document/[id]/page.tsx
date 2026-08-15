@@ -153,6 +153,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
   }
 
   return (
+    <div className="max-w-[1100px] mx-auto px-5 md:px-10 lg:px-12 py-6 md:py-12">
     <TwoColumn
       left={
         <div className="space-y-0">
@@ -295,5 +296,6 @@ export default async function DocumentPage({ params }: { params: { id: string } 
         </article>
       }
     />
+    </div>
   );
 }
