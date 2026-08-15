@@ -52,6 +52,46 @@ function extractMain(html: string): string {
   return stripHtml(src);
 }
 
+async function fetchWithWayback(url: string): Promise<string | null> {
+  // 1) Doğrudan fetch
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml' },
+      signal: ctrl.signal,
+      redirect: 'follow',
+    });
+    clearTimeout(timer);
+    if (resp.ok) {
+      const ct = resp.headers.get('content-type') || '';
+      if (ct.includes('html')) {
+        const html = await resp.text();
+        if (html.length >= 500) return html;
+      }
+    }
+  } catch {}
+  // 2) Wayback Machine fallback (CDX API ile en son snapshot)
+  try {
+    const cdxUrl = `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(url)}&output=json&limit=1&filter=statuscode:200&filter=mimetype:text/html&fl=timestamp,original`;
+    const cdxResp = await fetch(cdxUrl, { headers: { 'User-Agent': UA } });
+    if (!cdxResp.ok) return null;
+    const cdx = await cdxResp.json();
+    if (!Array.isArray(cdx) || cdx.length < 2) return null;
+    const ts = cdx[1][0];
+    const orig = cdx[1][1];
+    const wbUrl = `https://web.archive.org/web/${ts}id_/${orig}`;
+    const ctrl2 = new AbortController();
+    const timer2 = setTimeout(() => ctrl2.abort(), TIMEOUT_MS);
+    const resp2 = await fetch(wbUrl, { headers: { 'User-Agent': UA }, signal: ctrl2.signal, redirect: 'follow' });
+    clearTimeout(timer2);
+    if (!resp2.ok) return null;
+    const html = await resp2.text();
+    if (html.length >= 500) return html;
+  } catch {}
+  return null;
+}
+
 async function main() {
   // Tam metin çekilecek adaylar: kısa içerik + http(s) url + kaynak enabled
   // (30 gün filtresi kaldırıldı — eski dokümanlar da fulltext kazansın)
@@ -74,20 +114,8 @@ async function main() {
     if (SKIP_DOMAINS.some(sd => host.includes(sd))) { skipped++; continue; }
 
     try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-      const resp = await fetch(d.url, {
-        headers: { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml' },
-        signal: ctrl.signal,
-        redirect: 'follow',
-      });
-      clearTimeout(timer);
-      if (!resp.ok) { failed++; continue; }
-      const ct = resp.headers.get('content-type') || '';
-      if (!ct.includes('html')) { skipped++; continue; } // PDF vs. atla
-
-      const html = await resp.text();
-      if (html.length < 500) { skipped++; continue; } // boş/challenge sayfası
+      const html = await fetchWithWayback(d.url);
+      if (!html) { failed++; continue; }
       const text = extractMain(html);
       const words = text.split(/\s+/).filter(Boolean).length;
       if (words < 50) { skipped++; continue; } // hâlâ kısa — challenge/JS sayfası

@@ -55,8 +55,10 @@ async function main() {
   // 3) Adayları iocs tablosunda ara (chunk'lı IN sorgusu)
   //    - domain/IP adayları: LOWER(value) eşleşmesi
   //    - URL adayları: value host kısmı eşleşmesi (malicious_url tipi https://host/path)
+  //    - hash adayları: md5/sha1/sha256/ssl_sha1 desenleri
   const values = [...candidates.keys()];
   const urlCandidates = new Set<string>(); // full URL'ler
+  const hashCandidates = new Set<string>(); // hash değerleri
   for (const d of docs) {
     const text = `${d.title || ''} ${d.summary || ''} ${d.content || ''}`;
     for (const m of text.matchAll(/https?:\/\/[a-z0-9.\-:/_%?=&~+#]+/gi)) {
@@ -64,8 +66,11 @@ async function main() {
       if (u.length < 12 && u.length > 500) continue;
       urlCandidates.add(u.toLowerCase());
     }
+    for (const m of text.matchAll(/\b(?:[a-f0-9]{32}|[a-f0-9]{40}|[a-f0-9]{64})\b/g)) {
+      hashCandidates.add(m[0].toLowerCase());
+    }
   }
-  log(`${values.length} host/domain aday + ${urlCandidates.size} URL aday`);
+  log(`${values.length} host/domain aday + ${urlCandidates.size} URL aday + ${hashCandidates.size} hash aday`);
   let linked = 0, docCount = 0;
   const linkedDocIds = new Set<number>();
 
@@ -97,6 +102,7 @@ async function main() {
   const urlDocMap = new Map<string, Set<number>>();
   const hostDocMap = new Map<string, Set<number>>();
   const ipDocMap = new Map<string, Set<number>>();
+  const hashDocMap = new Map<string, Set<number>>();
   for (const d of docs) {
     const text = `${d.title || ''} ${d.summary || ''} ${d.content || ''}`.toLowerCase();
     for (const m of text.matchAll(/https?:\/\/[a-z0-9.\-:/_%?=&~+#]+/gi)) {
@@ -121,11 +127,17 @@ async function main() {
         ipDocMap.get(ip)!.add(d.id);
       }
     }
+    // Hash'ler (md5/sha1/sha256/ssl_sha1)
+    for (const m of text.matchAll(/\b(?:[a-f0-9]{32}|[a-f0-9]{40}|[a-f0-9]{64})\b/g)) {
+      const h = m[0];
+      if (!hashDocMap.has(h)) hashDocMap.set(h, new Set());
+      hashDocMap.get(h)!.add(d.id);
+    }
   }
   // ioc değerlerinden host çıkar ve eşleştir (chunk'lı)
   const { rows: allIocRows } = await pool.query<any>(
     `SELECT id, value, type FROM iocs
-     WHERE type IN ('malicious_url','phishing_url','domain','c2_ip','attacker_ip')`
+     WHERE type IN ('malicious_url','phishing_url','domain','c2_ip','attacker_ip','ssl_sha1','md5','sha1','sha256')`
   );
   for (const ioc of allIocRows) {
       const v = ioc.value.toLowerCase();
@@ -143,6 +155,8 @@ async function main() {
         docIds = hostDocMap.get(v);
       } else if (ioc.type === 'c2_ip' || ioc.type === 'attacker_ip') {
         docIds = ipDocMap.get(v);
+      } else if (ioc.type === 'md5' || ioc.type === 'sha1' || ioc.type === 'sha256' || ioc.type === 'ssl_sha1') {
+        docIds = hashDocMap.get(v);
       }
 
       if (docIds) {
