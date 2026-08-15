@@ -153,6 +153,27 @@ export default async function ActorPage({ params }: { params: { slug: string } }
         </div>
       )}
 
+      {/* Techniques (TTPs) */}
+      {actor?.ttps && actor.ttps.length > 0 && (
+        <div className="mb-8 md:mb-12">
+          <div className="text-[10px] tracking-widest2 text-dim mb-4">TECHNIQUES ({(actor.ttps || []).length})</div>
+          <div className="flex gap-2 flex-wrap">
+            {actor.ttps.slice(0, 24).map((t: string) => (
+              <a
+                key={t}
+                href={`/technique/${t}`}
+                className="inline-flex items-center px-2 py-1 text-[11px] font-mono uppercase tracking-widest2 border border-line hover:border-fg transition-colors break-words max-w-full"
+              >
+                {t}
+              </a>
+            ))}
+            {(actor.ttps || []).length > 24 && (
+              <span className="text-[10px] text-dim self-center font-mono">+{(actor.ttps || []).length - 24} more</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Document list */}
       <div className="border-t border-line pt-6 md:pt-8">
         <div className="text-[10px] tracking-widest2 text-dim mb-4">DOCUMENTS ({docs.length})</div>

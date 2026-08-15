@@ -61,7 +61,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
   const entityChip = (kind: string, value: string, href: string, color: string) => (
     <Link
       href={href}
-      className="inline-flex items-center px-1.5 py-[2px] text-[10px] font-mono uppercase tracking-widest2 border hover:bg-fg hover:text-bg transition-colors"
+      className="inline-flex items-center px-1.5 py-[2px] text-[10px] font-mono uppercase tracking-widest2 border hover:bg-fg hover:text-bg transition-colors max-w-full break-words text-left"
       style={{ borderColor: color, color }}
     >
       {value}
@@ -221,10 +221,10 @@ export default async function DocumentPage({ params }: { params: { id: string } 
           </div>
 
           {/* Summary */}
-          {hasSummary && (
+          {doc.summary && (
             <div className="mb-6 md:mb-8">
               <div className="text-[10px] tracking-widest2 text-dim mb-2">SUMMARY</div>
-              <div className="text-[13px] md:text-[14px] leading-[1.7] text-fg">
+              <div className="text-[13px] md:text-[14px] leading-[1.7] text-fg break-words overflow-wrap-anywhere">
                 {doc.summary}
               </div>
             </div>
@@ -234,7 +234,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
           {doc.ai_summary && doc.ai_summary.trim().length > 0 && (
             <div className="mb-6 md:mb-8">
               <div className="text-[10px] tracking-widest2 text-dim mb-2">AI SUMMARY</div>
-              <div className="text-[13px] md:text-[14px] leading-[1.7] text-fg border-l-2 border-[#00d97e] pl-4">
+              <div className="text-[13px] md:text-[14px] leading-[1.7] text-fg border-l-2 border-[#00d97e] pl-4 break-words">
                 {doc.ai_summary}
               </div>
             </div>
@@ -244,7 +244,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
           {hasContent && (
             <div className="mb-8 md:mb-12">
               <div className="text-[10px] tracking-widest2 text-dim mb-3">FULL REPORT</div>
-              <div className="text-[13px] md:text-[14px] leading-[1.8] text-fg max-w-[680px]">
+              <div className="text-[13px] md:text-[14px] leading-[1.8] text-fg max-w-[680px] break-words overflow-wrap-anywhere">
                 {doc.content}
               </div>
             </div>
