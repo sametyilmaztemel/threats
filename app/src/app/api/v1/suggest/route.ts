@@ -48,8 +48,9 @@ export async function GET(req: NextRequest) {
   }
   if (types.includes('sector')) {
     const { rows } = await query<any>(
-      `SELECT DISTINCT unnest(sectors) as name FROM documents WHERE sectors IS NOT NULL AND $1 ILIKE '%' || unnest(sectors) || '%' LIMIT 5`,
-      [q]
+      `SELECT DISTINCT sector as name FROM documents d, LATERAL unnest(d.sectors) sector
+       WHERE d.sectors IS NOT NULL AND sector ILIKE $1 LIMIT 5`,
+      [like]
     );
     for (const r of rows) suggestions.push({ type: 'sector', id: r.name, label: r.name });
   }
