@@ -31,22 +31,35 @@ export default async function SourcesPage({ searchParams }: { searchParams: { ca
       </div>
 
       <div className="border border-line overflow-x-auto">
-        <div className="grid grid-cols-12 text-[10px] tracking-widest2 text-dim border-b border-line bg-panel min-w-[700px]">
+        <div className="grid grid-cols-13 text-[10px] tracking-widest2 text-dim border-b border-line bg-panel min-w-[760px]">
           <div className="col-span-1 p-3 md:p-4">T</div>
           <div className="col-span-3 p-3 md:p-4">NAME</div>
           <div className="col-span-2 p-3 md:p-4">TYPE</div>
           <div className="col-span-2 p-3 md:p-4">CATEGORY</div>
           <div className="col-span-2 p-3 md:p-4">LANG</div>
-          <div className="col-span-2 p-3 md:p-4 text-right">ITEMS</div>
+          <div className="col-span-1 p-3 md:p-4 text-right">ITEMS</div>
+          <div className="col-span-2 p-3 md:p-4 text-right">7D QUALITY</div>
         </div>
         {sources.map((s: any) => (
-          <div key={s.id} className="grid grid-cols-12 text-sm border-b border-line hover:bg-panel transition-colors min-w-[700px]">
+          <div key={s.id} className="grid grid-cols-13 text-sm border-b border-line hover:bg-panel transition-colors min-w-[760px]">
             <div className="col-span-1 p-3 md:p-4 text-dim">{s.tier}</div>
             <div className="col-span-3 p-3 md:p-4 font-medium truncate">{s.name}</div>
             <div className="col-span-2 p-3 md:p-4 text-dim text-[10px] tracking-widest2">{s.type.toUpperCase()}</div>
             <div className="col-span-2 p-3 md:p-4 text-dim text-[10px] tracking-widest2">{s.category?.toUpperCase()}</div>
             <div className="col-span-2 p-3 md:p-4 text-dim text-[10px] tracking-widest2">{(s.language || 'en').toUpperCase()}</div>
-            <div className="col-span-2 p-3 md:p-4 text-right text-dim">{s.total_items || 0}</div>
+            <div className="col-span-1 p-3 md:p-4 text-right text-dim">{s.total_items || 0}</div>
+            <div className="col-span-2 p-3 md:p-4 text-right">
+              {s.runs_7d ? (
+                <span className="text-[10px] font-mono">
+                  <span className={s.error_rate > 30 ? 'text-[#ff3030]' : s.error_rate > 10 ? 'text-[#ffd60a]' : 'text-[#00d97e]'}>
+                    {s.avg_items ?? '—'}/çekim
+                  </span>
+                  {s.error_rate > 0 && <span className="text-dim"> · %{s.error_rate} hata</span>}
+                </span>
+              ) : (
+                <span className="text-[10px] text-dim">—</span>
+              )}
+            </div>
           </div>
         ))}
       </div>

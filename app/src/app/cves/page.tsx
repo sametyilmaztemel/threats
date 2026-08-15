@@ -28,18 +28,19 @@ function cvssLabel(score: number | null): string {
   return 'LOW';
 }
 
-export default async function CVEsPage({ searchParams }: { searchParams: { q?: string; sev?: string; vendor?: string; sort?: string; page?: string } }) {
+export default async function CVEsPage({ searchParams }: { searchParams: { q?: string; sev?: string; vendor?: string; sort?: string; range?: string; page?: string } }) {
   const page = Math.max(1, parseInt(searchParams.page || '1') || 1);
   const q = searchParams.q || '';
   const sev = searchParams.sev || '';
   const vendor = searchParams.vendor || '';
   const sort = searchParams.sort || '';
+  const range = searchParams.range || '';
   // sev: critical=9, high=7, medium=4, low=1
   const sevMap: Record<string, number> = { critical: 9, high: 7, medium: 4, low: 1 };
   const minCvss = sevMap[sev] ?? undefined;
   const [cves, total] = await Promise.all([
-    getCVEList(page, PAGE_SIZE, q, minCvss, vendor, sort),
-    getCVECount(q, minCvss, vendor),
+    getCVEList(page, PAGE_SIZE, q, minCvss, vendor, sort, range),
+    getCVECount(q, minCvss, vendor, range),
   ]);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pages: number[] = [];
@@ -53,6 +54,7 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
     if (sev) p.set('sev', sev);
     if (vendor) p.set('vendor', vendor);
     if (sort) p.set('sort', sort);
+    if (range) p.set('range', range);
     for (const [k, v] of Object.entries(extra)) if (v) p.set(k, v);
     const s = p.toString();
     return s ? `?${s}` : '';
@@ -106,6 +108,16 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
             placeholder="Vendor…"
             className="w-36 bg-transparent border border-line px-3 py-2 text-[12px] font-mono outline-none placeholder:text-dim/50"
           />
+          <select
+            name="range"
+            defaultValue={range}
+            className="bg-bg border border-line px-3 py-2 text-[12px] font-mono outline-none text-dim"
+          >
+            <option value="">PUBLISHED: ALL</option>
+            <option value="24h">LAST 24H</option>
+            <option value="7d">LAST 7 DAYS</option>
+            <option value="30d">LAST 30 DAYS</option>
+          </select>
           <select
             name="sort"
             defaultValue={sort}

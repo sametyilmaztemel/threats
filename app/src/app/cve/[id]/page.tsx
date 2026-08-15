@@ -51,6 +51,20 @@ export default async function CVEPage({ params }: { params: { id: string } }) {
   );
   const docs = docsRes.rows;
 
+  // AA-6: Bu CVE'yi mention eden dokümanlardaki IOC'ler
+  const iocsRes = await query<any>(
+    `SELECT i.value, i.type, COUNT(*)::int as cnt
+     FROM iocs i
+     JOIN document_iocs di ON di.ioc_id = i.id
+     JOIN documents d ON d.id = di.document_id
+     WHERE $1 = ANY(d.cves) OR EXISTS (SELECT 1 FROM document_cves dc WHERE dc.document_id = d.id AND dc.cve_id = $1)
+     GROUP BY i.value, i.type
+     ORDER BY cnt DESC
+     LIMIT 15`,
+    [cveId]
+  );
+  const iocs = iocsRes.rows;
+
   // Fetch related CVEs (co-mentioned) — find CVEs that appear alongside this one
   const relatedRes = await query<any>(
     `WITH target_docs AS (
@@ -136,6 +150,25 @@ export default async function CVEPage({ params }: { params: { id: string } }) {
                 className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-mono border border-line hover:border-fg transition-colors break-all"
               >
                 {r.cve_id} <span className="text-dim">· {r.cnt}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Observed IOCs (AA-6) */}
+      {iocs.length > 0 && (
+        <div className="border-t border-line pt-6 md:pt-8 mb-8">
+          <div className="text-[10px] tracking-widest2 text-dim mb-4">OBSERVED IOCs ({iocs.length})</div>
+          <div className="flex gap-2 flex-wrap">
+            {iocs.map((i: any) => (
+              <a
+                key={i.value}
+                href={`/ioc/${encodeURIComponent(i.value)}`}
+                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-mono border border-line hover:border-fg transition-colors break-all max-w-full"
+              >
+                <span className="text-dim uppercase">{i.type}</span> {i.value.length > 60 ? i.value.slice(0, 57) + '…' : i.value}
+                <span className="text-dim">· {i.cnt}</span>
               </a>
             ))}
           </div>

@@ -1,4 +1,4 @@
-import { getDailySeverity, getSectorKillChainCross, getActorTimeSeries, getCveAgeDistribution } from '@/lib/db';
+import { getDailySeverity, getDailyStats, getSectorKillChainCross, getActorTimeSeries, getCveAgeDistribution } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,14 +15,16 @@ const SECTOR_COLORS: Record<string, string> = {
 const AGE_COLORS: Record<string, string> = { '0-30d': '#ff3030', '31-90d': '#ff5c5c', '91-365d': '#ffd60a', '1y+': '#00d97e' };
 
 export default async function TrendsPage() {
-  const [daily, cross, actorSeries, cveAges] = await Promise.all([
+  const [daily, growth, cross, actorSeries, cveAges] = await Promise.all([
     getDailySeverity(),
+    getDailyStats(60),
     getSectorKillChainCross(),
     getActorTimeSeries(30),
     getCveAgeDistribution(),
   ]);
   const recent = daily.slice(-30);
   const max = Math.max(...recent.map((d: any) => d.total), 1);
+  const growthMax = Math.max(...growth.map((g: any) => g.documents), 1);
 
   // Cross: sektör → kill chain matrisi
   const sectors = [...new Set(cross.map((c: any) => c.sector))];
@@ -44,6 +46,40 @@ export default async function TrendsPage() {
       <div className="mb-6 md:mb-8">
         <div className="text-[10px] tracking-widest2 text-dim mb-1">/TRENDS</div>
         <h1 className="text-2xl md:text-3xl font-light tracking-wider2">TIMELINE</h1>
+      </div>
+
+      {/* Platform growth (AA-7) */}
+      <div className="border border-line p-3 md:p-8 mb-8 md:mb-12">
+        <div className="text-[10px] tracking-widest2 text-dim mb-4">PLATFORM GROWTH · 60D</div>
+        <div className="flex items-end gap-px h-40 md:h-48">
+          {growth.map((g: any) => {
+            const h = Math.max(2, (g.documents / growthMax) * 100);
+            return (
+              <div key={g.day} className="flex-1 flex flex-col items-stretch justify-end group relative">
+                <div
+                  className="bg-[#00d97e]/70 hover:bg-[#00d97e] transition-colors"
+                  style={{ height: `${h}%` }}
+                  title={`${g.day}: ${g.documents} docs · ${g.cves} CVEs`}
+                />
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex justify-between text-[9px] text-dim mt-1 tracking-widest">
+          <span>{growth[0]?.day?.toString().slice(0, 10)}</span>
+          <span className="hidden md:inline">{growth[Math.floor(growth.length / 2)]?.day?.toString().slice(0, 10)}</span>
+          <span>{growth[growth.length - 1]?.day?.toString().slice(0, 10)}</span>
+        </div>
+        {growth.length > 0 && (
+          <div className="mt-3 flex gap-4 text-[10px] font-mono text-dim">
+            <span>DOCS <span className="text-fg">{growth[growth.length - 1]?.documents ?? 0}</span></span>
+            <span>IOCS <span className="text-fg">{growth[growth.length - 1]?.iocs ?? 0}</span></span>
+            <span>CVES <span className="text-fg">{growth[growth.length - 1]?.cves ?? 0}</span></span>
+            <span className="hidden md:inline">ACTORS <span className="text-fg">{growth[growth.length - 1]?.actors ?? 0}</span></span>
+            <span className="hidden md:inline">AI <span className="text-fg">{growth[growth.length - 1]?.ai_threats ?? 0}</span></span>
+            <span>KEV <span className="text-fg">{growth[growth.length - 1]?.kev_cves ?? 0}</span></span>
+          </div>
+        )}
       </div>
 
       {/* Severity timeline */}

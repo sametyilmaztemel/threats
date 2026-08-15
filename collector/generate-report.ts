@@ -49,6 +49,13 @@ async function main() {
      GROUP BY sector ORDER BY n DESC LIMIT 5`, [days]
   )).rows;
 
+  // AA-10: API kullanımı (son 24 saat)
+  const apiUsage = (await pool.query(
+    `SELECT ip, SUM(requests)::int as total FROM api_usage
+     WHERE window_start > NOW() - interval '24 hours'
+     GROUP BY ip ORDER BY total DESC LIMIT 5`
+  ).catch(() => ({ rows: [] }))).rows;
+
   // 2) PDF üret
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
@@ -118,6 +125,14 @@ async function main() {
       doc.fillColor('#1a1a1a');
     });
     doc.moveDown(4);
+  }
+
+  // AA-10: API kullanımı bölümü
+  if (apiUsage.length > 0) {
+    doc.fontSize(10).fillColor('#000').text('API Usage (24h)', { underline: true });
+    doc.moveDown(0.6);
+    apiUsage.forEach((a: any) => doc.fontSize(9).fillColor('#333').text(`${String(a.ip).padEnd(18)} ${a.total} requests`));
+    doc.moveDown(1.2);
   }
 
   // Kill chain dağılımı (saf rect bars)

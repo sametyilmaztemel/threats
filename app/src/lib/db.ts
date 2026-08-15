@@ -114,8 +114,30 @@ export async function getActors(limit = 100) {
 
 export async function getSources() {
   const { rows } = await query<any>(
-    `SELECT id, name, type, category, tier, language, last_fetched_at, last_status, last_items_count, total_items, enabled
-     FROM sources ORDER BY tier, name`
+    `SELECT s.id, s.name, s.type, s.category, s.tier, s.language, s.last_fetched_at, s.last_status, s.last_items_count, s.total_items, s.enabled,
+            q.avg_items, q.error_rate, q.runs_7d
+     FROM sources s
+     LEFT JOIN (
+       SELECT source_id,
+              ROUND(AVG(items_count)::numeric, 1) as avg_items,
+              ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'error') / NULLIF(COUNT(*), 0)::numeric, 0) as error_rate,
+              COUNT(*) as runs_7d
+       FROM source_history
+       WHERE fetched_at >= NOW() - interval '7 days'
+       GROUP BY source_id
+     ) q ON q.source_id = s.id
+     ORDER BY s.tier, s.name`
+  );
+  return rows;
+}
+
+export async function getDailyStats(days = 60) {
+  const { rows } = await query<any>(
+    `SELECT day, documents, iocs, cves, actors, techniques, ai_threats, critical_docs, kev_cves
+     FROM daily_stats
+     WHERE day >= CURRENT_DATE - ($1::int || ' days')::interval
+     ORDER BY day`,
+    [days]
   );
   return rows;
 }
@@ -260,7 +282,7 @@ export async function getCVEs(limit = 100) {
   return rows;
 }
 
-export async function getCVEList(page = 1, pageSize = 50, search?: string, minCvss?: number, vendor?: string, sortBy?: string) {
+export async function getCVEList(page = 1, pageSize = 50, search?: string, minCvss?: number, vendor?: string, sortBy?: string, range?: string) {
   const offset = (page - 1) * pageSize;
   const conds: string[] = [];
   const params: any[] = [pageSize, offset];
@@ -279,6 +301,13 @@ export async function getCVEList(page = 1, pageSize = 50, search?: string, minCv
   if (vendor && vendor.trim()) {
     conds.push(`ce.vendor ILIKE $${pIdx}`);
     params.push(`%${vendor.trim()}%`);
+    pIdx++;
+  }
+  // range: 24h | 7d | 30d — yeni yayınlananlar (AA-5)
+  const rangeDays: Record<string, number> = { '24h': 1, '7d': 7, '30d': 30 };
+  if (range && rangeDays[range]) {
+    conds.push(`ce.published_date >= CURRENT_DATE - $${pIdx}::int`);
+    params.push(rangeDays[range]);
     pIdx++;
   }
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
@@ -306,7 +335,7 @@ export async function getCVEList(page = 1, pageSize = 50, search?: string, minCv
   return rows;
 }
 
-export async function getCVECount(search?: string, minCvss?: number, vendor?: string) {
+export async function getCVECount(search?: string, minCvss?: number, vendor?: string, range?: string) {
   const conds: string[] = [];
   const params: any[] = [];
   let pIdx = 1;
@@ -314,6 +343,12 @@ export async function getCVECount(search?: string, minCvss?: number, vendor?: st
   if (search && search.trim()) {
     conds.push(`(cve_id ILIKE $${pIdx} OR description ILIKE $${pIdx} OR vendor ILIKE $${pIdx} OR product ILIKE $${pIdx})`);
     params.push(`%${search.trim()}%`);
+    pIdx++;
+  }
+  const rangeDays: Record<string, number> = { '24h': 1, '7d': 7, '30d': 30 };
+  if (range && rangeDays[range]) {
+    conds.push(`published_date >= CURRENT_DATE - $${pIdx}::int`);
+    params.push(rangeDays[range]);
     pIdx++;
   }
   if (minCvss !== undefined && minCvss !== null) {

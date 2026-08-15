@@ -21,21 +21,27 @@ async function main() {
   }
   log(`KEV: ${kevSet.size} CVE`);
 
-  // 2) KEV'i uygula (hızlı — tüm cve_enrichment)
+  // 2) KEV'i uygula — hem ekle hem çıkar (güncel tut)
   const kevRes = await pool.query(`UPDATE cve_enrichment SET in_kev = true WHERE UPPER(cve_id) = ANY($1::text[])`, [[...kevSet]]);
-  log(`KEV işaretlendi: ${kevRes.rowCount}`);
+  // KEV'den çıkanları false'la (CISA listesi güncelleniyor)
+  const kevOut = await pool.query(`UPDATE cve_enrichment SET in_kev = false WHERE in_kev = true AND UPPER(cve_id) <> ALL($1::text[])`, [[...kevSet]]);
+  log(`KEV işaretlendi: ${kevRes.rowCount} +, çıkarıldı: ${kevOut.rowCount} -`);
 
   // 3) EPSS — cve_enrichment'taki CVE'ler, bulk chunk (100/chunk)
-  //    Enrichment için: son 7 günde eklenenler öncelikli (yeni CVE'ler)
+  //    EPSS_FULL_SCAN=1: TÜM EPSS'siz CVE'leri tara (165K — ~25 dk)
+  //    Varsayılan: son 7 günde eklenenler + EPSS'siz (delta modu)
+  const FULL_SCAN = process.env.EPSS_FULL_SCAN === '1';
   const ENRICH_LOOKBACK_DAYS = parseInt(process.env.EPSS_LOOKBACK_DAYS || '7', 10);
-  const { rows: cves } = await pool.query<any>(
-    `SELECT cve_id FROM cve_enrichment
-     WHERE last_enriched_at > NOW() - ($1 || ' days')::interval
-        OR epss IS NULL
-     ORDER BY last_enriched_at DESC NULLS FIRST`,
-    [ENRICH_LOOKBACK_DAYS]
-  );
-  log(`${cves.length} CVE için EPSS çekilecek (son ${ENRICH_LOOKBACK_DAYS} gün veya EPSS'siz)`);
+  const { rows: cves } = FULL_SCAN
+    ? await pool.query<any>(`SELECT cve_id FROM cve_enrichment WHERE epss IS NULL ORDER BY cve_id`)
+    : await pool.query<any>(
+        `SELECT cve_id FROM cve_enrichment
+         WHERE last_enriched_at > NOW() - ($1 || ' days')::interval
+            OR epss IS NULL
+         ORDER BY last_enriched_at DESC NULLS FIRST`,
+        [ENRICH_LOOKBACK_DAYS]
+      );
+  log(`${cves.length} CVE için EPSS çekilecek (${FULL_SCAN ? 'FULL SCAN' : `son ${ENRICH_LOOKBACK_DAYS} gün veya EPSS'siz`})`);
 
   let updated = 0;
   for (let i = 0; i < cves.length; i += 100) {

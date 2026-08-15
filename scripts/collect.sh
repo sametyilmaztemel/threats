@@ -100,4 +100,8 @@ echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] CVE delta güncelleme (son 24 saat)..
 cd /app && CVE_DELTA_HOURS=24 npx tsx sync-cves.ts >> /tmp/cve-sync-delta.log 2>&1 || echo "cve-sync hata (devam)"
 cd /app/collector
 
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Fulltext batch (150 doküman)..."
+cd /app && FULLTEXT_BATCH=150 npx tsx fetch-fulltext.ts >> /tmp/fulltext-batch.log 2>&1 || echo "fulltext hata (devam)"
+cd /app/collector
+
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Backfill tamam."

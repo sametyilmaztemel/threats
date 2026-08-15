@@ -116,6 +116,17 @@ async function main() {
   }
   log(`teknik ilişkili eklenen: ${techLinked}`);
 
+  // 4b) Teknik ilişkili aktörleri actors array'ine işle (UI'da görünür olsun)
+  //     document_actors'ta conf >= 0.5 olan tüm bağlantılar → documents.actors array'i
+  const arrayUpd = await pool.query<any>(
+    `UPDATE documents d SET actors = (
+       SELECT ARRAY(SELECT a.name FROM document_actors da JOIN actors a ON a.id = da.actor_id
+                    WHERE da.document_id = d.id AND da.confidence >= 0.5)
+     )
+     WHERE EXISTS (SELECT 1 FROM document_actors da2 WHERE da2.document_id = d.id AND da2.confidence >= 0.5)`
+  );
+  log(`actors array'i güncellenen doküman: ${arrayUpd.rowCount}`);
+
   // 5) Aktör document_count güncelle
   const { rows: counts } = await pool.query<any>(
     `SELECT actor_id, COUNT(*)::int as cnt FROM document_actors GROUP BY actor_id`

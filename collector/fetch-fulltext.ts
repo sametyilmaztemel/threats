@@ -9,7 +9,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const log = (m: string) => console.log(`[fulltext] ${m}`);
 
 const UA = 'threats.0rce.com/1.0 (+https://threats.0rce.com)';
-const MAX_DOCS = 3000;      // koşu başına max
+const MAX_DOCS = parseInt(process.env.FULLTEXT_BATCH || '150', 10); // koşu başına max (bounded batch)
 const RATE_MS = 500;        // 2 req/s
 const TIMEOUT_MS = 15000;
 
