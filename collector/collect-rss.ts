@@ -9,6 +9,31 @@ const parser = new Parser({ timeout: 30000, headers: { 'User-Agent': 'threats.0r
 
 const AI_KEYWORDS = ['llm', 'gpt', 'claude', 'gemini', 'prompt injection', 'jailbreak', 'adversarial', 'model extraction', 'deepfake', 'machine learning', 'neural network', 'rag', 'embedding', 'transformer', 'training data', 'fine-tun', 'openai', 'anthropic', 'huggingface', 'langchain'];
 
+// Genel haber kaynakları (Dünya Gazetesi, A Haber vb.) için konu filtresi:
+// başlıkta/özetinde siber güvenlik ile ilgili hiçbir keyword yoksa atla
+const SECURITY_KEYWORDS = [
+  'cyber', 'cybersecurity', 'security', 'hack', 'hacker', 'hacking', 'breach', 'leak', 'malware',
+  'ransomware', 'phishing', 'spyware', 'trojan', 'botnet', 'ddos', 'vulnerability', 'cve-',
+  'exploit', 'zero-day', 'zeroday', 'siber', 'siber güvenlik', 'siber saldırı', 'siber güvenlik',
+  'saldırı', 'veri ihlali', 'veri sızıntısı', 'fidye', 'oltalama', 'zararlı yazılım', 'hackerl',
+  'bilgi güvenliği', 'kvkk', 'siber suç', 'casus yazılım', 'hacker', 'açık bulundu', 'güvenlik açığı',
+  'ai', 'llm', 'yapay zeka', 'robot', 'dijital', 'veri', 'internet', 'telekom', 'telefon', 'uygulama',
+  'otomotiv', 'elektronik', 'teknoloji', 'cloud', 'bulut', 'yazılım', 'ağ', 'şifre', 'parola',
+  'kimlik hırsızlığı', 'dark web', 'deepfake', 'casusluk', 'istihbarat', 'siber ordu', 'ulusal güvenlik',
+];
+
+// Konu filtresi gerektiren kaynak adları (genel haber siteleri)
+const FILTERED_SOURCES = ['Dünya Gazetesi', 'A Haber', 'Webrazzi', 'ShiftDelete', 'TRT', 'Haber'];
+
+function needsSecurityFilter(sourceName: string): boolean {
+  return FILTERED_SOURCES.some((n: string) => sourceName.includes(n));
+}
+
+function isSecurityRelevant(text: string): boolean {
+  const lower = text.toLowerCase();
+  return SECURITY_KEYWORDS.some((k: string) => lower.includes(k));
+}
+
 function stripHTML(html: string): string {
   if (!html) return '';
   let text = html
@@ -69,6 +94,10 @@ async function ingestRSS(source: any) {
     for (const item of feed.items.slice(0, 50)) {
       if (!item.link || !item.title) continue;
       const text = `${item.title} ${stripHTML(item.contentSnippet || '')} ${stripHTML(item.content || '')}`;
+
+      // Genel haber kaynaklarında konu filtresi: siber güvenlik ile ilgili değilse atla
+      if (needsSecurityFilter(source.name) && !isSecurityRelevant(text)) continue;
+
       const aiThreat = detectAI(text);
       const cves = extractCVEs(text);
       const severity = detectSeverity(text);

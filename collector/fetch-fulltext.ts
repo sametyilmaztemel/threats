@@ -34,10 +34,20 @@ function stripHtml(html: string): string {
   t = t.replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ');
   // etiketleri at
   t = t.replace(/<[^>]+>/g, ' ');
-  // entity decode
+  // entity decode — önce numeric (&#NNN; ve &#xHH;), sonra isimli
+  t = t.replace(/&#(\d+);/g, (_, n) => {
+    try { return String.fromCodePoint(parseInt(n, 10)); } catch { return ''; }
+  });
+  t = t.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => {
+    try { return String.fromCodePoint(parseInt(h, 16)); } catch { return ''; }
+  });
   t = t.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
        .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-       .replace(/&rsquo;/g, "'").replace(/&ldquo;|&rdquo;/g, '"').replace(/&mdash;|&ndash;/g, '-');
+       .replace(/&rsquo;/g, "'").replace(/&lsquo;/g, "'").replace(/&ldquo;|&rdquo;/g, '"')
+       .replace(/&mdash;|&ndash;/g, '-').replace(/&hellip;/g, '...')
+       .replace(/&ccedil;/gi, 'ç').replace(/&ouml;/gi, 'ö').replace(/&uuml;/gi, 'ü')
+       .replace(/&auml;/gi, 'ä').replace(/&uuml;/gi, 'ü').replace(/&ocirc;/gi, 'ô')
+       .replace(/&egrave;/gi, 'è').replace(/&agrave;/gi, 'à').replace(/&iuml;/gi, 'ï');
   // boşlukları birleştir
   t = t.replace(/\s+/g, ' ').trim();
   return t;
