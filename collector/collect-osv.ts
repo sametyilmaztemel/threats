@@ -6,27 +6,42 @@
 import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
+import { createWriteStream } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as zlib from 'zlib';
 import { spawn } from 'child_process';
+import { Readable } from 'stream';
 dotenv.config();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const log = (m: string) => console.log(`[osv] ${m}`);
 
 const BASE = 'https://osv-vulnerabilities.storage.googleapis.com';
-// Varsayılan: en değerli ekosistemler (env ile override edilebilir)
-const ECOS = (process.env.OSV_ECOS || 'PyPI,npm,Maven,Go,OSS-Fuzz,Debian,Alpine,Ubuntu,Hex,Packagist,RubyGems').split(',');
+// OSV.dev ekosistem güvenlik kayıtları (toplu döküm).
+// Sadece all.zip içeriği zip-of-JSON olan ekosistemler: PyPI, crates.io, Go, NuGet, Maven, OSS-Fuzz
+// npm/Maven/Debian/Ubuntu dökümleri farklı layout (NDJSON partitioned) — destek eklenmedi
+// (Maven all.zip standart zip ama formatı farklı parse gerektirir)
+const DEFAULT_ECOS = 'PyPI,crates.io,Go,NuGet,OSS-Fuzz,Maven';
+// Kullanıcı override edebilir (OSV_ECOS env)
+const ECOS = (process.env.OSV_ECOS || DEFAULT_ECOS).split(',');
 
-async function download(url: string, dest: string): Promise<void> {
-  const resp = await fetch(url, { headers: { 'User-Agent': 'threats.0rce.com/1.0' }, signal: AbortSignal.timeout(300000) });
+// Streaming download: zip'i memory'de tutmadan diske yaz (büyük zip'ler için)
+async function downloadToFile(url: string, dest: string): Promise<void> {
+  const resp = await fetch(url, { headers: { 'User-Agent': 'threats.0rce.com/1.0' }, signal: AbortSignal.timeout(600000) });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  const buf = Buffer.from(await resp.arrayBuffer());
-  fs.writeFileSync(dest, buf);
+  if (!resp.body) throw new Error('no body');
+  const stream = Readable.fromWeb(resp.body as any);
+  await new Promise<void>((resolve, reject) => {
+    const ws = createWriteStream(dest);
+    stream.pipe(ws);
+    ws.on('finish', resolve);
+    ws.on('error', reject);
+    stream.on('error', reject);
+  });
 }
 
-// Zip'i stream ile oku: unzip komutu (worker image'da mevcut)
+// Disk dostu: zip'i fetch'le dosya yaz, extract et, dosyayı sil
 function extractZipToDir(zipPath: string, dir: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const p = spawn('unzip', ['-q', '-o', zipPath, '-d', dir]);
@@ -44,10 +59,14 @@ async function main() {
     const zipPath = path.join(tmp, `${eco}.zip`);
     const outDir = path.join(tmp, eco);
     try {
-      log(`indiriliyor: ${eco}/all.zip...`);
-      await download(`${BASE}/${eco}/all.zip`, zipPath);
+      log(`indiriliyor: ${eco}/all.zip (streaming)...`);
+      await downloadToFile(`${BASE}/${eco}/all.zip`, zipPath);
+      const stat = fs.statSync(zipPath);
+      log(`  ${eco}: zip indi (${(stat.size / 1e6).toFixed(1)}MB) — extract ediliyor...`);
       fs.mkdirSync(outDir, { recursive: true });
       await extractZipToDir(zipPath, outDir);
+      // Zip'i hemen sil — disk kazanç
+      try { fs.unlinkSync(zipPath); } catch {}
       const files = fs.readdirSync(outDir).filter(f => f.endsWith('.json'));
       log(`  ${eco}: ${files.length} advisory dosyası`);
 
