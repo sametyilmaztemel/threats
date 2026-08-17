@@ -21,17 +21,26 @@ export async function getRecentDocuments(limit = 50, aiOnly = false, aiCategory?
   const catJoin = aiCategory
     ? `JOIN ai_threats at ON at.document_id = d.id AND at.ai_category = $2`
     : '';
+  // Madde 4: DISTINCT ile duplicate dokümanları teke indir (ai_threats JOIN'i aynı
+  // dokümanı birden çok kategori satırıyla çoğaltabilir)
   const { rows } = await query<any>(
-    `SELECT d.id, d.title, d.url, d.severity, d.published_at, d.fetched_at,
+    `SELECT DISTINCT ON (d.id) d.id, d.title, d.url, d.severity, d.published_at, d.fetched_at,
             d.category, d.cves, d.actors, d.ai_threat, s.name as source_name, s.category as source_category
      FROM documents d
      LEFT JOIN sources s ON d.source_id = s.id
      ${catJoin}
      ${where}
-     ORDER BY COALESCE(d.published_at, d.fetched_at) DESC, d.id DESC
+     ORDER BY d.id, COALESCE(d.published_at, d.fetched_at) DESC
      LIMIT $1`,
     aiCategory ? [limit, aiCategory] : [limit]
   );
+  // DISTINCT + ORDER BY id karışımından sonra gerçek tarih sırasına göre yeniden sırala
+  rows.sort((a: any, b: any) => {
+    const da = new Date(a.published_at || a.fetched_at).getTime();
+    const db = new Date(b.published_at || b.fetched_at).getTime();
+    if (db !== da) return db - da;
+    return b.id - a.id;
+  });
   return rows;
 }
 

@@ -1,51 +1,28 @@
-// link-actors.ts — aliases tabanlı aktör-doküman eşleştirme
-// Her aktörün name + aliases'lerini doküman title+summary+content'ta ara,
-// documents.actors array'ine + document_actors junction'a yaz.
-// Dikkat: kısa/tek heceli alias'lar false positive üretir — min uzunluk 4.
+// link-actors.ts — canonical threat-actor matching using actor-match.ts.
+// Word-boundary + phrasal + normalize, generic short aliases excluded.
+// Writes documents.actors (canonical names only) + document_actors junction
+// with confidence/match_reason/matched_text/extraction_method.
 import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
+import { findActorMatches, type ActorDef } from './actor-match';
 dotenv.config();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const log = (m: string) => console.log(`[link-actors] ${m}`);
 
-// False-positive riskli çok kısa/generik alias'lar
-const SKIP_ALIASES = new Set([
-  'apt', 'unit', 'group', 'team', 'gang', 'sector', 'hive', 'play',
-  'silver', 'gold', 'cobalt', 'magic', 'dark', 'black', 'blue', 'red',
-  'snake', 'dragon', 'tiger', 'panda', 'bear', 'kitten', 'falcon',
-  'iron', 'steel', 'grizzly', 'cozy', 'fancy',
-]);
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 async function main() {
-  // 1) Tüm aktörler + aliases
+  // 1) Tüm aktörler + canonical aliases
   const { rows: actors } = await pool.query<any>(
-    `SELECT id, name, COALESCE(aliases, ARRAY[]::text[]) as aliases FROM actors`
+    `SELECT id, name, COALESCE(aliases, ARRAY[]::text[]) as aliases FROM actors WHERE name IS NOT NULL`
   );
   log(`${actors.length} aktör`);
+  const actorDefs: ActorDef[] = actors
+    .filter((a: any) => a.name && a.aliases && a.aliases.length > 0)
+    .map((a: any) => ({ name: a.name, aliases: a.aliases as string[] }));
 
-  // 2) Eşleştirme desenleri oluştur
-  const patterns: { actorId: number; name: string; regex: RegExp }[] = [];
-  for (const a of actors) {
-    const names = [a.name, ...(a.aliases || [])];
-    const unique = [...new Set(names.map((n: string) => n.trim()).filter((n: string) => n.length >= 4))];
-    for (const n of unique) {
-      if (SKIP_ALIASES.has(n.toLowerCase())) continue;
-      // Kelime sınırlı eşleşme (alt çizgi/boşluk varyantları)
-      const esc = escapeRegExp(n);
-      patterns.push({ actorId: a.id, name: n, regex: new RegExp(`\\b${esc}\\b`, 'i') });
-    }
-  }
-  log(`${patterns.length} eşleştirme deseni`);
-
-  // 3) Dokümanları tara (content yoksa summary + title)
+  // 2) Dokümanları tara
   const { rows: docs } = await pool.query<any>(
-    `SELECT id, title, COALESCE(summary,'') as summary, COALESCE(content,'') as content
-     FROM documents ORDER BY id`
+    `SELECT id, title, COALESCE(summary,'') as summary, COALESCE(content,'') as content FROM documents ORDER BY id`
   );
   log(`${docs.length} doküman taranacak`);
 
@@ -53,81 +30,39 @@ async function main() {
   for (const d of docs) {
     const text = `${d.title || ''} ${d.summary || ''} ${d.content || ''}`;
     if (text.length < 30) continue;
+    const matches = findActorMatches(text, actorDefs);
+    if (!matches.length) continue;
 
-    const foundActors = new Map<number, string>(); // actorId → name
-    for (const p of patterns) {
-      if (p.regex.test(text)) {
-        foundActors.set(p.actorId, p.name);
-      }
+    // documents.actors array'ine sadece canonical name'leri ekle
+    const canonicalByActor = new Map<number, string>();
+    for (const m of matches) {
+      const actorRow = await pool.query<any>(`SELECT id FROM actors WHERE name=$1`, [m.actorName]);
+      if (actorRow.rows[0]) canonicalByActor.set(actorRow.rows[0].id, m.actorName);
     }
-    if (foundActors.size === 0) continue;
-
-    // Mevcut actors array'ini koru + yenileri ekle
-    const current = (await pool.query<any>(
-      `SELECT actors FROM documents WHERE id=$1`, [d.id]
-    )).rows[0]?.actors || [];
-
-    const merged = [...new Set([...current, ...foundActors.values()])];
+    const newActors = [...canonicalByActor.values()];
+    const current = (await pool.query<any>(`SELECT actors FROM documents WHERE id=$1`, [d.id])).rows[0]?.actors || [];
+    const merged = [...new Set([...current, ...newActors])];
     await pool.query(`UPDATE documents SET actors=$1 WHERE id=$2`, [merged, d.id]);
 
-    // Junction tablosuna yaz
-    for (const actorId of foundActors.keys()) {
+    for (const m of matches) {
+      const actorRow = await pool.query<any>(`SELECT id FROM actors WHERE name=$1`, [m.actorName]);
+      if (!actorRow.rows[0]) continue;
       await pool.query(
-        `INSERT INTO document_actors (document_id, actor_id, confidence) VALUES ($1, $2, 0.85)
-         ON CONFLICT DO NOTHING`,
-        [d.id, actorId]
+        `INSERT INTO document_actors (document_id, actor_id, confidence, match_reason, matched_text, extraction_method)
+         VALUES ($1, $2, $3, $4, $5, 'canonical_alias_match')
+         ON CONFLICT (document_id, actor_id) DO UPDATE SET
+           confidence = EXCLUDED.confidence,
+           match_reason = EXCLUDED.match_reason,
+           matched_text = EXCLUDED.matched_text`,
+        [d.id, actorRow.rows[0].id, Math.round(m.confidence * 100), m.matchReason, m.matchedText]
       );
       linked++;
     }
     docCount++;
-    if (docCount % 200 === 0) log(`${docCount} doküman işlendi...`);
+    if (docCount % 500 === 0) log(`${docCount} doküman işlendi...`);
   }
 
-  // 4) Teknik ilişkili aktör önerisi (düşük güven — "ilişkili olabilir")
-  //    Dokümanda ATT&CK tekniği geçiyorsa, o tekniği kullanan aktörleri ekle
-  //    (confidence 0.4 — yanlış pozitif riski düşük tutulur)
-  //    Kaynak: actors.ttps array'inden teknik→aktör ters haritası
-  const techActors = await pool.query<any>(
-    `SELECT ttp AS attack_id, a.name AS actor_name, a.id AS actor_id
-     FROM actors a, unnest(a.ttps) ttp
-     WHERE a.ttps IS NOT NULL AND array_length(a.ttps, 1) > 0`
-  ).catch(() => ({ rows: [] }));
-  log(`teknik-aktör ilişkisi: ${techActors.rows.length}`);
-
-  let techLinked = 0;
-  for (const d of docs) {
-    const techs = (await pool.query<any>(`SELECT techniques FROM documents WHERE id=$1`, [d.id])).rows[0]?.techniques || [];
-    if (!techs.length) continue;
-    const techSet = new Set(techs.map((t: string) => t.toUpperCase()));
-    // Doküman zaten hangi aktörlere sahip?
-    const cur = (await pool.query<any>(`SELECT actors FROM documents WHERE id=$1`, [d.id])).rows[0]?.actors || [];
-    const curSet = new Set(cur.map((a: string) => a.toLowerCase()));
-    for (const rel of techActors.rows) {
-      if (techSet.has(rel.attack_id.toUpperCase()) && !curSet.has(rel.actor_name.toLowerCase())) {
-        await pool.query(
-          `INSERT INTO document_actors (document_id, actor_id, confidence) VALUES ($1, $2, 0.4)
-           ON CONFLICT DO NOTHING`,
-          [d.id, rel.actor_id]
-        ).catch(() => {});
-        techLinked++;
-      }
-    }
-    if (techLinked % 500 === 0 && techLinked > 0) log(`teknik ilişkili: ${techLinked}...`);
-  }
-  log(`teknik ilişkili eklenen: ${techLinked}`);
-
-  // 4b) Teknik ilişkili aktörleri actors array'ine işle (UI'da görünür olsun)
-  //     document_actors'ta conf >= 0.5 olan tüm bağlantılar → documents.actors array'i
-  const arrayUpd = await pool.query<any>(
-    `UPDATE documents d SET actors = (
-       SELECT ARRAY(SELECT a.name FROM document_actors da JOIN actors a ON a.id = da.actor_id
-                    WHERE da.document_id = d.id AND da.confidence >= 0.5)
-     )
-     WHERE EXISTS (SELECT 1 FROM document_actors da2 WHERE da2.document_id = d.id AND da2.confidence >= 0.5)`
-  );
-  log(`actors array'i güncellenen doküman: ${arrayUpd.rowCount}`);
-
-  // 5) Aktör document_count güncelle
+  // 3) document_count güncelle
   const { rows: counts } = await pool.query<any>(
     `SELECT actor_id, COUNT(*)::int as cnt FROM document_actors GROUP BY actor_id`
   );
@@ -136,7 +71,7 @@ async function main() {
   }
   log(`document_count güncellendi: ${counts.length} aktör`);
 
-  log(`TAMAM: ${linked} aliases bağlantı, ${docCount} doküman + ${techLinked} teknik ilişkili`);
+  log(`TAMAM: ${linked} aliases bağlantı, ${docCount} doküman`);
   await pool.end();
 }
 

@@ -416,14 +416,62 @@ export default async function FeedPage({
 
   const sevCounts = sevFacetResult.rows[0] || ({} as any);
 
-  // Kalite sayıları (quality facet için)
+  // Madde 12: Kalite ve dil facet'leri de filtre-aware (diğerlerinin pattern'ini kullanır)
+  function buildFacetWhereNoQualityLang(exclude: string): { where: string; p: any[] } {
+    const cs: string[] = []; const ps: any[] = []; let i = 1;
+    if (searchParams.q && searchParams.q.trim() && exclude !== 'q') {
+      cs.push(`(d.title ILIKE $${i} OR d.content ILIKE $${i})`);
+      ps.push(`%${searchParams.q.trim()}%`); i++;
+    }
+    if (exclude !== 'sev') {
+      const v = severityValues(searchParams.sev);
+      if (v.length > 0) {
+        const parts: string[] = [];
+        for (const lower of v) {
+          const upper = SEVERITY_BUCKET_UPPER[lower] ?? 11;
+          if (upper >= 11) { parts.push(`d.severity >= $${i++}`); ps.push(lower); }
+          else { parts.push(`(d.severity >= $${i++} AND d.severity < $${i++})`); ps.push(lower, upper); }
+        }
+        cs.push('(' + parts.join(' OR ') + ')');
+      }
+    }
+    if (exclude !== 'cat') {
+      const v = splitCsv(searchParams.cat);
+      if (v.length === 1) { cs.push(`$${i} = ANY(d.category)`); ps.push(v[0]); i++; }
+      else if (v.length > 1) { const ph = v.map(() => `$${i++}`).join(','); cs.push(`(d.category && ARRAY[${ph}]::text[])`); ps.push(...v); }
+    }
+    if (exclude !== 'actor') {
+      const v = splitCsv(searchParams.actor);
+      if (v.length === 1) { cs.push(`$${i} = ANY(d.actors)`); ps.push(v[0]); i++; }
+      else if (v.length > 1) { const ph = v.map(() => `$${i++}`).join(','); cs.push(`(d.actors && ARRAY[${ph}]::text[])`); ps.push(...v); }
+    }
+    if (exclude !== 'cve') {
+      const v = splitCsv(searchParams.cve);
+      if (v.length === 1) { cs.push(`$${i} = ANY(d.cves)`); ps.push(v[0]); i++; }
+      else if (v.length > 1) { const ph = v.map(() => `$${i++}`).join(','); cs.push(`(d.cves && ARRAY[${ph}]::text[])`); ps.push(...v); }
+    }
+    if (searchParams.source && searchParams.source.trim() && exclude !== 'source') {
+      cs.push(`s.name ILIKE $${i}`); ps.push(`%${searchParams.source.trim()}%`); i++;
+    }
+    if (exclude !== 'tlp') {
+      const v = splitCsv(searchParams.tlp).map((t) => t.toUpperCase());
+      if (v.length === 1) { cs.push(`d.tlp = $${i}`); ps.push(v[0]); i++; }
+      else if (v.length > 1) { const ph = v.map(() => `$${i++}`).join(','); cs.push(`d.tlp IN (${ph})`); ps.push(...v); }
+    }
+    if (exclude !== 'ai') {
+      if (searchParams.ai === 'true') cs.push(`d.ai_threat = TRUE`);
+      else if (searchParams.ai === 'false') cs.push(`d.ai_threat = FALSE`);
+    }
+    return { where: cs.length > 0 ? 'WHERE ' + cs.join(' AND ') : '', p: ps };
+  }
+  const qW = buildFacetWhereNoQualityLang('quality');
+  const lW = buildFacetWhereNoQualityLang('lang');
   const qualityCounts = {
-    high: await query<{ c: string }>(`SELECT COUNT(*)::int as c FROM documents WHERE quality_score >= 60`).then(r => Number(r.rows[0]?.c || 0)),
-    full: await query<{ c: string }>(`SELECT COUNT(*)::int as c FROM documents WHERE quality_score >= 80`).then(r => Number(r.rows[0]?.c || 0)),
+    high: await query<{ c: string }>(`SELECT COUNT(*)::int as c FROM documents d LEFT JOIN sources s ON d.source_id = s.id ${qW.where.replace('WHERE ', 'WHERE ')} AND d.quality_score >= 60`, qW.p).then(r => Number(r.rows[0]?.c || 0)).catch(() => 0),
+    full: await query<{ c: string }>(`SELECT COUNT(*)::int as c FROM documents d LEFT JOIN sources s ON d.source_id = s.id ${qW.where.replace('WHERE ', 'WHERE ')} AND d.quality_score >= 80`, qW.p).then(r => Number(r.rows[0]?.c || 0)).catch(() => 0),
   };
-  // Dil sayıları (lang facet için)
   const langCounts = {
-    tr: await query<{ c: string }>(`SELECT COUNT(*)::int as c FROM documents d JOIN sources s ON d.source_id = s.id WHERE s.language = 'tr'`).then(r => Number(r.rows[0]?.c || 0)),
+    tr: await query<{ c: string }>(`SELECT COUNT(*)::int as c FROM documents d JOIN sources s ON d.source_id = s.id ${lW.where.replace('WHERE ', 'WHERE ')} AND s.language = 'tr'`, lW.p).then(r => Number(r.rows[0]?.c || 0)).catch(() => 0),
   };
   const aiCounts = aiFacetResult.rows[0] || ({} as any);
 

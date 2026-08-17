@@ -1,6 +1,11 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import Nav from '@/components/Nav';
+import { getStats, getSources } from '@/lib/db';
+import { formatNumber } from '@/lib/format';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 60;
 
 export const metadata: Metadata = {
   title: {
@@ -8,16 +13,28 @@ export const metadata: Metadata = {
     template: '%s | threats.0rce.com',
   },
   description: 'Aggregated cyber threat intelligence. Real-time vulnerabilities, IOCs, threat actors, and AI-specific attacks.',
-  robots: 'noindex, nofollow'
+  // Madde 13: noindex kaldırıldı (sistem public). robots meta üzerinden yönetilebilir.
+  robots: { index: true, follow: true, googleBot: { index: true, follow: true } },
+  openGraph: {
+    title: 'threats.0rce.com',
+    description: 'Aggregated cyber threat intelligence.',
+    type: 'website',
+  },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#000000'
+  themeColor: '#000000',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const [stats, sources] = await Promise.all([getStats(), getSources()]);
+  const total = sources.length;
+  const active = sources.filter((s: any) => s.enabled).length;
+  const healthy = sources.filter((s: any) => s.enabled && (!s.last_status || s.last_status === 'ok')).length;
+  const disabled = total - active;
+  // Madde 11: "70+ SOURCES · LIVE" hardcoded kaldırıldı, dinamik sayılar.
   return (
     <html lang="en">
       <body className="min-h-screen bg-bg text-fg antialiased overflow-x-hidden">
@@ -27,7 +44,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="max-w-[1400px] mx-auto px-4 md:px-8 text-xs text-dim tracking-wider2">
             <div className="flex flex-col md:flex-row justify-between items-center gap-3 md:gap-0 text-center md:text-left">
               <div>THREATS.0RCE.COM · 2026</div>
-              <div>70+ SOURCES · LIVE</div>
+              <div>
+                {formatNumber(total)} configured · {formatNumber(active)} active · {formatNumber(healthy)} healthy{disabled > 0 ? ` · ${formatNumber(disabled)} disabled` : ''}
+              </div>
               <div>NO COOKIES · NO TRACKING</div>
             </div>
           </div>

@@ -8,6 +8,7 @@ import CopyButton from '@/components/ui/CopyButton';
 import BookmarkButton from '@/components/ui/BookmarkButton';
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { MarkdownLite } from '@/components/MarkdownLite';
 
 export const dynamic = 'force-dynamic';
 
@@ -221,12 +222,12 @@ export default async function DocumentPage({ params }: { params: { id: string } 
             </div>
           </div>
 
-          {/* Summary */}
+          {/* Summary — Markdown render (Madde 10) */}
           {doc.summary && (
             <div className="mb-6 md:mb-8">
               <div className="text-[10px] tracking-widest2 text-dim mb-2">SUMMARY</div>
-              <div className="text-[13px] md:text-[14px] leading-[1.7] text-fg break-words overflow-wrap-anywhere">
-                {doc.summary}
+              <div className="text-[13px] md:text-[14px] leading-[1.7] text-fg max-w-[680px] break-words overflow-wrap-anywhere">
+                <MarkdownLite text={doc.summary} />
               </div>
             </div>
           )}
@@ -235,8 +236,8 @@ export default async function DocumentPage({ params }: { params: { id: string } 
           {doc.ai_summary && doc.ai_summary.trim().length > 0 && (
             <div className="mb-6 md:mb-8">
               <div className="text-[10px] tracking-widest2 text-dim mb-2">AI SUMMARY</div>
-              <div className="text-[13px] md:text-[14px] leading-[1.7] text-fg border-l-2 border-[#00d97e] pl-4 break-words">
-                {doc.ai_summary}
+              <div className="text-[13px] md:text-[14px] leading-[1.7] text-fg border-l-2 border-[#00d97e] pl-4 break-words max-w-[680px]">
+                <MarkdownLite text={doc.ai_summary} />
               </div>
             </div>
           )}
@@ -246,7 +247,7 @@ export default async function DocumentPage({ params }: { params: { id: string } 
             <div className="mb-8 md:mb-12">
               <div className="text-[10px] tracking-widest2 text-dim mb-3">FULL REPORT</div>
               <div className="text-[13px] md:text-[14px] leading-[1.8] text-fg max-w-[680px] break-words overflow-wrap-anywhere">
-                {doc.content}
+                <MarkdownLite text={doc.content} />
               </div>
             </div>
           )}

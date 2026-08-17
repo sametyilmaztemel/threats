@@ -1,5 +1,10 @@
 // extract-iocs-from-text.ts — IOC extraction helpers shared by collect-rss.mts and backfill.
-// Exports extractIOCs(text) → Array<{value, type}>.
+// Exports extractIOCs(text) → Array<{value, type, classification, confidence, reason}>.
+//
+// Madde 5: Public infrastructure domains (github.com, microsoft.com, ...) are
+// NEVER classified as malicious IOC. They get classification: 'mentioned'
+// and very low confidence. IOC pipeline must filter out 'mentioned' rows
+// before counting/documenting.
 
 const REGEX = {
   ipv4: /\b(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\b/g,
@@ -93,7 +98,11 @@ function isBadDomain(d: string): boolean {
   return false;
 }
 
-export interface ExtractedIOC { value: string; type: string; }
+export interface ExtractedIOC { value: string; type: string; classification: string; confidence: number; reason?: string; }
+
+// Public infrastructure domains (Madde 5) — never classified as malicious IOC
+// Re-export from ioc-classifier so extract-iocs-from-text stays aligned.
+import { classifyIoc, isPublicInfrastructure } from './ioc-classifier';
 
 export function extractIOCs(text: string): ExtractedIOC[] {
   if (!text) return [];
@@ -106,7 +115,9 @@ export function extractIOCs(text: string): ExtractedIOC[] {
     const k = `malicious_url|${v}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    out.push({ value: v, type: 'malicious_url' });
+    // Madde 5: public infrastructure is always 'mentioned'
+    const classified = classifyIoc(v, 'malicious_url', { hasSourceLink: false, hasMaliciousKeyword: false });
+    out.push({ value: v, type: 'malicious_url', classification: classified.classification, confidence: classified.confidence, reason: classified.reason });
   }
 
   for (const m of text.matchAll(REGEX.ipv4)) {
@@ -115,14 +126,14 @@ export function extractIOCs(text: string): ExtractedIOC[] {
     const k = `c2_ip|${m[0]}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    out.push({ value: m[0], type: 'c2_ip' });
+    out.push({ value: m[0], type: 'c2_ip', classification: 'observed', confidence: 0.5 });
   }
 
   for (const m of text.matchAll(REGEX.sha256)) {
     const k = `sha256|${m[0].toLowerCase()}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    out.push({ value: m[0].toLowerCase(), type: 'sha256' });
+    out.push({ value: m[0].toLowerCase(), type: 'sha256', classification: 'observed', confidence: 0.5 });
   }
 
   for (const m of text.matchAll(REGEX.sha1)) {
@@ -130,7 +141,7 @@ export function extractIOCs(text: string): ExtractedIOC[] {
     const k = `sha1|${m[0].toLowerCase()}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    out.push({ value: m[0].toLowerCase(), type: 'sha1' });
+    out.push({ value: m[0].toLowerCase(), type: 'sha1', classification: 'observed', confidence: 0.5 });
   }
 
   for (const m of text.matchAll(REGEX.md5)) {
@@ -139,7 +150,7 @@ export function extractIOCs(text: string): ExtractedIOC[] {
     const k = `md5|${m[0].toLowerCase()}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    out.push({ value: m[0].toLowerCase(), type: 'md5' });
+    out.push({ value: m[0].toLowerCase(), type: 'md5', classification: 'observed', confidence: 0.5 });
   }
 
   for (const m of text.matchAll(DOMAIN_REGEX)) {
@@ -147,10 +158,12 @@ export function extractIOCs(text: string): ExtractedIOC[] {
     if (isBadDomain(d)) continue;
     if (d.length < 4 || d.length > 253) continue;
     if (/^\d+\.\d+$/.test(d)) continue;
+    // Madde 5: public infrastructure domain → always 'mentioned', never IOC
+    if (isPublicInfrastructure(d)) continue;
     const k = `domain|${d}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    out.push({ value: d, type: 'domain' });
+    out.push({ value: d, type: 'domain', classification: 'observed', confidence: 0.5 });
   }
 
   return out;

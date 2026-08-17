@@ -1,5 +1,6 @@
 import { getCVEList, getCVECount } from '@/lib/db';
 import Breadcrumb from '@/components/layout/Breadcrumb';
+import { canonicalCvss, severityFromCvss } from '@/lib/severity';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +14,7 @@ function fmtDate(d: string | null | undefined): string {
 }
 
 function cvssColor(score: number | null): string {
-  if (score === null) return '#555';
+  if (score === null || score === undefined || !Number.isFinite(score)) return '#555';
   if (score >= 9) return '#ff3030';
   if (score >= 7) return '#ff5c5c';
   if (score >= 4) return '#ffd60a';
@@ -21,11 +22,7 @@ function cvssColor(score: number | null): string {
 }
 
 function cvssLabel(score: number | null): string {
-  if (score === null) return '—';
-  if (score >= 9) return 'CRITICAL';
-  if (score >= 7) return 'HIGH';
-  if (score >= 4) return 'MEDIUM';
-  return 'LOW';
+  return severityFromCvss(score).toUpperCase();
 }
 
 export default async function CVEsPage({ searchParams }: { searchParams: { q?: string; sev?: string; vendor?: string; sort?: string; range?: string; page?: string } }) {
@@ -167,7 +164,7 @@ export default async function CVEsPage({ searchParams }: { searchParams: { q?: s
                   </a>
                 </td>
                 <td className="px-3 py-2 font-mono" style={{ color: cvssColor(c.cvss_v3) }}>
-                  {c.cvss_v3 !== null ? Number(c.cvss_v3).toFixed(1) : '—'}
+                  {(() => { const n = canonicalCvss(c.cvss_v3); return n !== null ? n.toFixed(1) : '—'; })()}
                 </td>
                 <td className="px-3 py-2">
                   <span className="text-[9px] tracking-widest px-1.5 py-[2px] border" style={{ color: cvssColor(c.cvss_v3), borderColor: cvssColor(c.cvss_v3) }}>

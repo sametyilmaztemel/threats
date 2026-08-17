@@ -1,81 +1,127 @@
 // content-backfill.ts — Threats içerik katmanlarını prod seviyesine doldurur
-// 7 katman: actors, document_actors, techniques, ai_threats, cve_enrichment, sectors, graph
 // Çalıştırma: docker exec threats-worker npx tsx /app/collector/content-backfill.ts
+// Bu versiyon: actor-match.ts, severity.ts, ai-taxonomy.ts, ioc-classifier.ts modüllerini kullanır.
 import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
+import { findActorMatches, isMatchableAlias, type ActorDef } from './actor-match';
+import { canonicalCvss, severityFromCvss } from '../app/src/lib/severity';
+import { isAiThreatCategory, type AiCategory } from '../app/src/lib/ai-taxonomy';
+import { classifyIoc, isPublicInfrastructure } from './ioc-classifier';
 dotenv.config();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const log = (m: string) => console.log(`[backfill] ${m}`);
 
-// ── 1. Aktör tanımlarını zenginleştir + alias eşleştirme tablosu ──
-const ACTORS: Record<string, { aliases: string[]; origin: string; type: string; targets: string[]; ttps: string[] }> = {
-  'Conti':        { aliases: ['conti'], origin: 'Russia', type: 'ransomware-gang', targets: ['healthcare', 'government', 'finance'], ttps: ['Data Encrypted for Impact', 'Phishing'] },
-  'LockBit':      { aliases: ['lockbit', 'lock bit'], origin: 'Russia', type: 'ransomware-gang', targets: ['finance', 'government'], ttps: ['Data Encrypted for Impact', 'Exploit Public-Facing Application'] },
-  'Clop':         { aliases: ['clop', 'cl0p'], origin: 'Russia', type: 'ransomware-gang', targets: ['finance', 'healthcare'], ttps: ['Data Encrypted for Impact'] },
-  'Lazarus':      { aliases: ['lazarus', 'hidden cobra', 'diamond sic'], origin: 'North Korea', type: 'apt', targets: ['finance', 'crypto'], ttps: ['Phishing', 'Valid Accounts'] },
-  'Kimsuky':      { aliases: ['kimsuky', 'velvet chollima'], origin: 'North Korea', type: 'apt', targets: ['government', 'defense'], ttps: ['Phishing', 'Command and Scripting Interpreter'] },
-  'Mustang Panda': { aliases: ['mustang panda', 'reddelta', 'honey myte'], origin: 'China', type: 'apt', targets: ['government', 'ngo'], ttps: ['Phishing', 'Command and Scripting Interpreter'] },
-  'APT28':        { aliases: ['apt28', 'fancy bear', 'sofacy', 'forest blizzard'], origin: 'Russia', type: 'apt', targets: ['government', 'defense'], ttps: ['Phishing', 'Valid Accounts', 'Exploit Public-Facing Application'] },
-  'APT29':        { aliases: ['apt29', 'cozy bear', 'midnight blizzard'], origin: 'Russia', type: 'apt', targets: ['government', 'technology'], ttps: ['Phishing', 'Valid Accounts'] },
-  'Scattered Spider': { aliases: ['scattered spider', 'octo tempest', 'scattered spider'], origin: 'US', type: 'financially-motivated', targets: ['technology', 'telecom'], ttps: ['Valid Accounts', 'Phishing'] },
-  'UNC3886':      { aliases: ['unc3886', 'barium'], origin: 'China', type: 'apt', targets: ['defense', 'telecom'], ttps: ['Command and Scripting Interpreter', 'Exploit Public-Facing Application'] },
+// ── 1. Aktör tanımları (canonical) ────────────────────────────────────
+const ACTOR_DEFS: Record<string, { aliases: string[]; origin: string; type: string; targets: string[]; ttps: string[] }> = {
+  'Conti':        { aliases: ['Conti', 'Conti ransomware', 'Wizard Spider'], origin: 'Russia', type: 'ransomware-gang', targets: ['healthcare', 'government', 'finance'], ttps: ['Data Encrypted for Impact'] },
+  'LockBit':      { aliases: ['LockBit', 'LockBit ransomware'], origin: 'Russia', type: 'ransomware-gang', targets: ['finance', 'government'], ttps: ['Data Encrypted for Impact', 'Exploit Public-Facing Application'] },
+  'Clop':         { aliases: ['Clop', 'Cl0p'], origin: 'Russia', type: 'ransomware-gang', targets: ['finance', 'healthcare'], ttps: ['Data Encrypted for Impact'] },
+  'Lazarus':      { aliases: ['Lazarus', 'Hidden Cobra', 'Diamond SIC'], origin: 'North Korea', type: 'apt', targets: ['finance', 'crypto'], ttps: ['Phishing', 'Valid Accounts'] },
+  'Kimsuky':      { aliases: ['Kimsuky', 'Velvet Chollima'], origin: 'North Korea', type: 'apt', targets: ['government', 'defense'], ttps: ['Phishing'] },
+  'Mustang Panda':{ aliases: ['Mustang Panda', 'RedDelta', 'Honey Myte'], origin: 'China', type: 'apt', targets: ['government', 'ngo'], ttps: ['Phishing'] },
+  'APT28':        { aliases: ['APT28', 'Fancy Bear', 'Sofacy', 'Forest Blizzard'], origin: 'Russia', type: 'apt', targets: ['government', 'defense'], ttps: ['Phishing', 'Valid Accounts', 'Exploit Public-Facing Application'] },
+  'APT29':        { aliases: ['APT29', 'Cozy Bear', 'Midnight Blizzard'], origin: 'Russia', type: 'apt', targets: ['government', 'technology'], ttps: ['Phishing', 'Valid Accounts'] },
+  'UNC3886':      { aliases: ['UNC3886', 'Barium'], origin: 'China', type: 'apt', targets: ['defense', 'telecom'], ttps: ['Command and Scripting Interpreter'] },
+  'Equation Group':{ aliases: ['Equation Group', 'EquationDrug'], origin: 'US', type: 'apt', targets: ['government', 'technology'], ttps: ['Exploit Public-Facing Application'] },
+  'Silence':      { aliases: ['Silence'], origin: 'Russia', type: 'apt', targets: ['finance'], ttps: ['Phishing'] },
 };
 
-// ── 2. Teknik keyword eşleştirme ──
+// ── 2. Teknik keyword (geniş → dar) ─────────────────────────────────────
+// Genel keyword tek başına tetiklemez, en az 2 eşleşme ya da CVE/ref ile tetikler.
 const TECH_KEYWORDS: Record<string, string[]> = {
-  'Command and Scripting Interpreter': ['powershell', 'cmd.exe', 'bash -c', 'scripting', 'wmic', 'rundll32', 'mshta'],
-  'Phishing': ['phishing', 'spearphishing', 'spam campaign', 'malicious link', 'fake login'],
-  'Exploit Public-Facing Application': ['cve-', 'exploit', 'zero-day', 'zeroday', 'vulnerability', 'rce', 'remote code execution', 'unpatched'],
-  'Valid Accounts': ['valid account', 'credential stuffing', 'stolen credential', 'account takeover', 'mfa bypass'],
-  'Data Encrypted for Impact': ['ransomware', 'encrypted', 'decrypt', 'double extortion', 'lockbit', 'conti', 'clop'],
-  'LLM Prompt Injection': ['prompt injection', 'jailbreak', 'indirect prompt', 'llm injection'],
-  'Exfiltration via Cyber Means': ['exfiltration', 'data theft', 'data leak', 'stolen data', 'dll sideloading', 'data exfil'],
-  'Erode ML Model Integrity': ['model poisoning', 'data poisoning', 'adversarial attack', 'model integrity', 'backdoor model'],
-  'Publish Poisoned Datasets': ['poisoned dataset', 'poisoned data', 'malicious dataset', 'huggingface malware', 'dataset poisoning'],
-  'Poison Training Data': ['training data poisoning', 'poison training', 'data poisoning'],
+  'Command and Scripting Interpreter': ['powershell', 'cmd.exe', 'bash -c', 'rundll32', 'mshta'],
+  'Phishing': ['spearphishing', 'spam campaign', 'malicious link', 'fake login', 'phishing kit'],
+  'Exploit Public-Facing Application': ['cve-', 'zero-day', 'zeroday', 'remote code execution', 'unpatched server'],
+  'Valid Accounts': ['credential stuffing', 'stolen credential', 'account takeover', 'mfa bypass'],
+  'Data Encrypted for Impact': ['double extortion', 'lockbit', 'conti', 'clop', 'ransomware gang', 'ransomware attack'],
+  'LLM Prompt Injection': ['prompt injection', 'jailbreak', 'indirect prompt', 'llm injection', 'tool poisoning'],
+  'Exfiltration via Cyber Means': ['data exfil', 'data theft', 'data leak'],
+  'Erode ML Model Integrity': ['model poisoning', 'adversarial attack', 'backdoor model'],
+  'Publish Poisoned Datasets': ['poisoned dataset', 'malicious dataset', 'dataset poisoning'],
 };
 
-// ── 3. Sektör keyword eşleştirme ──
+// ── 3. Sektör keyword (güçlü bağlam gerektirir) ───────────────────────
+// En az 2 keyword ya da CVE içinde sektör adı geçmeli.
 const SECTOR_KEYWORDS: Record<string, string[]> = {
-  'finance': ['bank', 'financial', 'fintech', 'crypto', 'bitcoin', 'payment', 'swift', 'atm', 'card', 'wallet', 'blockchain', 'ethereum', 'defi', 'exchange', 'trading', 'investment', 'insurance', 'remittance', 'pos', 'kyc', 'aml', 'binance', 'coinbase'],
-  'healthcare': ['healthcare', 'hospital', 'medical', 'clinic', 'pharma', 'health system', 'patient', 'vaccine', 'covid', 'emr', 'ehr', 'hipaa', 'biotech', 'diagnostic', 'telehealth', 'prescription', 'laboratory'],
-  'government': ['government', 'state-sponsored', 'public sector', 'agency', 'ministry', 'election', 'embassy', 'parliament', 'municipality', 'federal', 'national security', 'diplomatic', 'civil service', 'customs', 'tax authority', 'internal affairs'],
-  'defense': ['defense', 'military', 'missile', 'weapon', 'defence', 'army', 'navy', 'air force', 'warfare', 'cyberwar', 'battlefield', 'soldier', 'intelligence agency', 'espionage', 'drone strike', 'munitions'],
-  'technology': ['software', 'tech company', 'cloud', 'saas', 'developer', 'open source', 'github', 'android', 'ios', 'api', 'kubernetes', 'docker', 'linux', 'windows', 'server', 'database', 'framework', 'npm', 'pypi', 'vulnerability scanner', 'firmware', 'router firmware', 'cisco', 'microsoft', 'apple', 'google'],
-  'telecom': ['telecom', 'isp', 'mobile network', '5g', 'router', 'sim swap', 'subscriber', 'roaming', 'sms', 'voip', 'broadband', 'fiber', 'cell tower', 'gsm', 'lte', 'mms'],
-  'energy': ['energy', 'power grid', 'utility', 'oil', 'gas', 'electricity', 'nuclear', 'pipeline', 'power plant', 'grid operator', 'smart meter', 'refinery', 'renewable', 'wind farm', 'scada'],
-  'retail': ['retail', 'e-commerce', 'ecommerce', 'shopping', 'store', 'marketplace', 'consumer', 'loyalty', 'checkout', 'inventory', 'supply chain', 'logistics', 'warehouse', 'delivery', 'food delivery'],
+  'finance': ['bank', 'financial', 'fintech', 'swift', 'bitcoin', 'payment', 'exchange', 'wallet', 'kyc'],
+  'healthcare': ['hospital', 'medical', 'clinic', 'pharma', 'patient', 'emr', 'ehr', 'hipaa', 'diagnostic'],
+  'government': ['state-sponsored', 'public sector', 'ministry', 'election', 'embassy', 'parliament', 'municipality', 'diplomatic'],
+  'defense': ['military', 'weapon', 'army', 'navy', 'air force', 'soldier', 'espionage', 'intelligence agency'],
+  'technology': ['software', 'tech company', 'saas', 'developer', 'open source', 'api', 'docker', 'linux', 'framework'],
+  'telecom': ['isp', 'mobile network', '5g', 'sim swap', 'voip', 'broadband', 'gsm', 'lte'],
+  'energy': ['power grid', 'utility', 'oil', 'gas', 'nuclear', 'pipeline', 'power plant', 'smart meter', 'scada'],
+  'retail': ['e-commerce', 'shopping', 'store', 'marketplace', 'loyalty', 'checkout'],
 };
 
-// ── 4. AI tehdit kategorisi keyword eşleştirme ──
-const AI_CATEGORIES: Record<string, string[]> = {
-  'ai-abuse': ['deepfake', 'fraud', 'scam', 'abuse', 'misuse'],
-  'prompt-injection': ['prompt injection', 'jailbreak', 'indirect prompt', 'tool poisoning'],
-  'model-theft': ['model theft', 'model extraction', 'distill', 'steal model', 'api theft'],
-  'data-poisoning': ['poison', 'corrupt', 'manipulate', 'backdoor'],
-  'privacy-leak': ['leak', 'expose', 'privacy', 'personal data', 'training data'],
-  'autonomous-weapon': ['weapon', 'drone', 'autonomous', 'military', 'targeting'],
-  'content-safety': ['watermark', 'evasion', 'detection evasion', 'content filter', 'safety'],
-  'research': ['research', 'paper', 'arxiv', 'benchmark', 'evaluation', 'training'],
-};
+// ── 4. AI tehdit kategorisi (yeni taksonomi) ─────────────────────────────
+// Sadece gerçek AI security vakaları sayılır. ArXiv cs.AI gibi genel
+// araştırmalar "ai_research"a düşer ve KPI'ya dahil edilmez.
+const AI_CATEGORY_MAP: Array<{ cat: AiCategory; kws: string[]; weight: number }> = [
+  { cat: 'prompt_injection', weight: 1, kws: ['prompt injection', 'jailbreak', 'indirect prompt', 'tool poisoning'] },
+  { cat: 'data_poisoning', weight: 1, kws: ['data poisoning', 'backdoor model', 'malicious dataset'] },
+  { cat: 'model_theft', weight: 1, kws: ['model extraction', 'model theft', 'distill attack', 'steal model'] },
+  { cat: 'adversarial_ai', weight: 1, kws: ['adversarial example', 'evasion attack', 'fool classifier'] },
+  { cat: 'privacy_leak', weight: 1, kws: ['training data extraction', 'membership inference', 'model inversion'] },
+  { cat: 'deepfake_abuse', weight: 1, kws: ['deepfake', 'voice clone', 'synthetic media fraud'] },
+  { cat: 'malicious_ai_use', weight: 1, kws: ['attacker uses ai', 'threat actor uses llm', 'ai-assisted phishing'] },
+  { cat: 'ai_incident', weight: 1, kws: ['ai incident', 'ai misuse', 'ai enabled breach', 'llm data leak'] },
+  { cat: 'ai_security_research', weight: 0, kws: ['defensive ai', 'ai for detection', 'machine learning security'] },
+  { cat: 'ai_research', weight: 0, kws: ['arxiv', 'benchmark', 'training methodology'] },
+];
+
+const SOURCE_AI_KEYWORDS = /\b(arxiv|mitre atlas|lakera|huggingface.*advisory|hiddenlayer|anthropic.*security|openai.*security)/i;
+const MALICIOUS_KEYWORD_RE = /(malware|ransomware|phishing|exploit|cve-\d|threat actor|attacker|adversary|cyberattack|cyber attack|backdoor|trojan|stealer|cryptolocker|cobalt|sodinokibi|revil|conti|lockbit|magniber|wannacry|petya|notpetya|trickbot|emotet|dridex|azorult|agent\.tesla|formbook|lokibot|redline|vidar|raccoon|amadey|pushdo|hancitor|qakbot)/i;
+
+function classifyAIDocument(title: string, summary: string, content: string): { cat: AiCategory; confidence: number } {
+  const text = `${title} ${summary} ${content}`.toLowerCase();
+  // Araştırma mu? (arxiv / paper / benchmark / dataset / training)
+  const researchSignals = [
+    /\barxiv[: ]/i.test(text), /\bpaper\b/i.test(text), /\bbenchmark\b/i.test(text),
+    /\bdataset\b/i.test(text) && !/poisoned dataset|malicious dataset/.test(text),
+    /training methodology|training procedure|training data/i.test(text) && !MALICIOUS_KEYWORD_RE.test(text),
+  ].filter(Boolean).length;
+  const isResearch = researchSignals >= 2 || SOURCE_AI_KEYWORDS.test(`${title} ${summary}`) && /benchmark|paper|methodology/i.test(text);
+
+  // En yüksek ağırlıklı kategoriyi bul
+  let best: AiCategory = 'ai_related';
+  let bestWeight = 0;
+  for (const { cat, kws, weight } of AI_CATEGORY_MAP) {
+    const hits = kws.filter(k => text.includes(k)).length;
+    if (hits > 0 && weight > bestWeight) {
+      best = cat;
+      bestWeight = weight;
+    }
+  }
+  if (isResearch && (best === 'ai_related' || bestWeight === 0)) {
+    return { cat: 'ai_research', confidence: 30 };
+  }
+  return { cat: best, confidence: bestWeight === 0 ? 30 : 80 };
+}
+
+function detectAIDocument(title: string, summary: string, content: string): boolean {
+  const text = `${title} ${summary} ${content}`.toLowerCase();
+  const aiKws = ['llm', 'gpt', 'claude', 'gemini', 'transformer', 'machine learning', 'neural network',
+                 'openai', 'anthropic', 'huggingface', 'prompt', 'jailbreak', 'deepfake', 'model extraction',
+                 'adversarial', 'rag ', 'agent', 'chatbot', 'fine-tun', 'token', 'embedding'];
+  return aiKws.some(k => text.includes(k));
+}
+
+function keywordCount(text: string, kws: string[]): number {
+  return kws.filter(k => text.includes(k.toLowerCase())).length;
+}
 
 async function main() {
-  // ── A. Aktör zenginleştirme + eşleştirme ──
+  // ── A. Aktör zenginleştirme + eşleştirme (canonical match) ──
   log('A. Aktör zenginleştirme + doküman eşleştirme...');
-  for (const [name, info] of Object.entries(ACTORS)) {
+  for (const [name, info] of Object.entries(ACTOR_DEFS)) {
     await pool.query(
       `UPDATE actors SET aliases=$1, origin_country=$2, type=$3, targets=$4, ttps=$5, updated_at=NOW() WHERE name=$6`,
       [info.aliases, info.origin, info.type, info.targets, info.ttps, name]
     );
   }
-  // Alias listesi: tüm aktörler
-  const aliasMap: { name: string; alias: string }[] = [];
-  for (const [name, info] of Object.entries(ACTORS)) {
-    for (const a of info.aliases) aliasMap.push({ name, alias: a });
-  }
+  const actorDefs: ActorDef[] = Object.entries(ACTOR_DEFS).map(([name, info]) => ({ name, aliases: info.aliases }));
 
-  // Dokümanları tara → actors array + document_actors
   const { rows: docs } = await pool.query<any>(
     `SELECT id, title, COALESCE(content,'') as content FROM documents WHERE id > 0`
   );
@@ -83,96 +129,121 @@ async function main() {
   let actorLinks = 0;
   const actorCounts: Record<string, number> = {};
   for (const d of docs) {
-    const text = (d.title + ' ' + d.content).toLowerCase();
-    const matched = new Set<string>();
-    for (const { name, alias } of aliasMap) {
-      if (text.includes(alias)) matched.add(name);
-    }
-    if (matched.size > 0) {
-      const arr = [...matched];
-      await pool.query(`UPDATE documents SET actors=$1 WHERE id=$2`, [arr, d.id]);
-      for (const a of arr) {
-        await pool.query(
-          `INSERT INTO document_actors (document_id, actor_id) SELECT $1, id FROM actors WHERE name=$2
-           ON CONFLICT DO NOTHING`, [d.id, a]
-        );
-        actorCounts[a] = (actorCounts[a] || 0) + 1;
-        actorLinks++;
-      }
+    const text = d.title + ' ' + d.content;
+    const matches = findActorMatches(text, actorDefs);
+    if (!matches.length) continue;
+    // Sadece canonical name'i documents.actors array'ine yaz (alias'leri değil)
+    const actorNames = [...new Set(matches.map(m => m.actorName))];
+    const current = (await pool.query<any>(`SELECT actors FROM documents WHERE id=$1`, [d.id])).rows[0]?.actors || [];
+    const merged = [...new Set([...current, ...actorNames])];
+    await pool.query(`UPDATE documents SET actors=$1 WHERE id=$2`, [merged, d.id]);
+    for (const m of matches) {
+      const actorRow = await pool.query<any>(`SELECT id FROM actors WHERE name=$1`, [m.actorName]);
+      if (!actorRow.rows[0]) continue;
+      await pool.query(
+        `INSERT INTO document_actors (document_id, actor_id, confidence, match_reason, matched_text, extraction_method)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (document_id, actor_id) DO UPDATE SET
+           confidence = EXCLUDED.confidence,
+           match_reason = EXCLUDED.match_reason,
+           matched_text = EXCLUDED.matched_text`,
+        [d.id, actorRow.rows[0].id, Math.round(m.confidence * 100), m.matchReason, m.matchedText, 'canonical_alias_match']
+      );
+      actorLinks++;
+      actorCounts[m.actorName] = (actorCounts[m.actorName] || 0) + 1;
     }
   }
-  // document_count güncelle
   for (const [name, count] of Object.entries(actorCounts)) {
     await pool.query(`UPDATE actors SET document_count=$1, updated_at=NOW() WHERE name=$2`, [count, name]);
   }
   log(`  ${actorLinks} aktör-doküman bağlantısı`);
 
-  // ── B. Teknik eşleştirme ──
+  // ── B. Teknik eşleştirme (güçlü bağlam gerekir) ──
   log('B. Teknik eşleştirme...');
   let techLinks = 0;
   for (const d of docs) {
     const text = (d.title + ' ' + d.content).toLowerCase();
     const matched: string[] = [];
     for (const [tech, kws] of Object.entries(TECH_KEYWORDS)) {
-      if (kws.some(k => text.includes(k))) matched.push(tech);
+      const hits = keywordCount(text, kws);
+      if (hits >= 2 || (hits === 1 && /\bcve-\d/i.test(text))) matched.push(tech);
     }
-    if (matched.length > 0) {
-      await pool.query(`UPDATE documents SET techniques=$1 WHERE id=$2`, [matched, d.id]);
-      for (const t of matched) {
-        await pool.query(
-          `INSERT INTO document_techniques (document_id, technique_id) SELECT $1, id FROM techniques WHERE name=$2
-           ON CONFLICT DO NOTHING`, [d.id, t]
-        );
-        techLinks++;
-      }
+    if (matched.length === 0) continue;
+    await pool.query(`UPDATE documents SET techniques=$1 WHERE id=$2`, [matched, d.id]);
+    for (const t of matched) {
+      await pool.query(
+        `INSERT INTO document_techniques (document_id, technique_id, match_reason, matched_text)
+         SELECT $1, id, 'keyword_match', $2 FROM techniques WHERE name=$3
+         ON CONFLICT (document_id, technique_id) DO UPDATE SET
+           match_reason = EXCLUDED.match_reason,
+           matched_text = EXCLUDED.matched_text`,
+        [d.id, matched.join(','), t]
+      );
+      techLinks++;
     }
   }
   log(`  ${techLinks} teknik-doküman bağlantısı`);
 
-  // ── C. Sektör eşleştirme ──
+  // ── C. Sektör eşleştirme (en az 2 keyword veya açık bağlam) ──
   log('C. Sektör eşleştirme...');
   let sectorLinks = 0;
   for (const d of docs) {
     const text = (d.title + ' ' + d.content).toLowerCase();
     const matched: string[] = [];
     for (const [sector, kws] of Object.entries(SECTOR_KEYWORDS)) {
-      if (kws.some(k => text.includes(k))) matched.push(sector);
+      const hits = keywordCount(text, kws);
+      if (hits >= 2) matched.push(sector);
     }
-    if (matched.length > 0) {
-      await pool.query(`UPDATE documents SET sectors=$1 WHERE id=$2`, [matched, d.id]);
-      sectorLinks += matched.length;
-    }
+    if (matched.length === 0) continue;
+    await pool.query(`UPDATE documents SET sectors=$1 WHERE id=$2`, [matched, d.id]);
+    sectorLinks += matched.length;
   }
   log(`  ${sectorLinks} sektör etiketi`);
 
-  // ── D. AI tehdit kayıtları ──
-  log('D. ai_threats üretimi...');
+  // ── D. AI tehdit kayıtları (yeni taksonomi) ──
+  log('D. ai_threats üretimi (yeni taksonomi)...');
   const { rows: aiDocs } = await pool.query<any>(
-    `SELECT id, title, COALESCE(content,'') as content, severity, cves FROM documents WHERE ai_threat = true`
+    `SELECT id, title, COALESCE(summary,'') as summary, COALESCE(content,'') as content, severity, cves
+     FROM documents`
   );
-  let aiInserted = 0;
+  let aiInserted = 0, aiClassified = 0;
   for (const d of aiDocs) {
-    const text = (d.title + ' ' + d.content).toLowerCase();
-    let category = 'ai-security';
-    for (const [cat, kws] of Object.entries(AI_CATEGORIES)) {
-      if (kws.some(k => text.includes(k))) { category = cat; break; }
+    const isAI = detectAIDocument(d.title, d.summary, d.content);
+    const cls = classifyAIDocument(d.title, d.summary, d.content);
+    const isThreat = isAiThreatCategory(cls.cat);
+    // documents.ai_threat sadece gerçek threat kategorilerinde true
+    if (isAI && isThreat) {
+      await pool.query(`UPDATE documents SET ai_threat=TRUE WHERE id=$1`, [d.id]);
+      const technique = cls.cat === 'prompt_injection' ? 'LLM Prompt Injection' : null;
+      const cve = Array.isArray(d.cves) && d.cves.length > 0 ? d.cves[0] : null;
+      await pool.query(
+        `INSERT INTO ai_threats (document_id, ai_category, target_system, technique, severity, cve, classification, confidence)
+         VALUES ($1, $2, 'llm', $3, $4, $5, $2, $6)
+         ON CONFLICT (document_id, ai_category) DO UPDATE SET
+           severity = EXCLUDED.severity,
+           technique = EXCLUDED.technique,
+           cve = EXCLUDED.cve,
+           confidence = EXCLUDED.confidence`,
+        [d.id, cls.cat, technique, d.severity ?? null, cve, cls.confidence]
+      );
+      aiInserted++;
+    } else if (isAI) {
+      // AI ama threat değil → ai_research/ai_related olarak işaretle
+      await pool.query(
+        `INSERT INTO ai_threats (document_id, ai_category, classification, confidence)
+         VALUES ($1, $2, $2, $3)
+         ON CONFLICT (document_id, ai_category) DO UPDATE SET classification = EXCLUDED.classification`,
+        [d.id, cls.cat, cls.confidence]
+      );
+      aiClassified++;
     }
-    const technique = d.content?.toLowerCase().includes('prompt injection') ? 'LLM Prompt Injection' : null;
-    const cve = Array.isArray(d.cves) && d.cves.length > 0 ? d.cves[0] : null;
-    await pool.query(
-      `INSERT INTO ai_threats (document_id, ai_category, target_system, technique, severity, cve)
-       VALUES ($1, $2, 'llm', $3, $4, $5)
-       ON CONFLICT DO NOTHING`,
-      [d.id, category, technique, d.severity, cve]
-    );
-    aiInserted++;
   }
-  log(`  ${aiInserted} AI tehdit kaydı`);
+  log(`  ${aiInserted} AI tehdit + ${aiClassified} AI araştırma`);
 
   // ── E. CVE enrichment (NVD API) ──
   log('E. CVE enrichment (NVD)...');
   const { rows: cveRows } = await pool.query<any>(
-    `SELECT DISTINCT cve_id FROM document_cves WHERE cve_id NOT IN (SELECT cve_id FROM cve_enrichment) LIMIT 2000`
+    `SELECT DISTINCT cve_id FROM document_cves WHERE cve_id NOT IN (SELECT cve_id FROM cve_enrichment) LIMIT 500`
   );
   let cveEnriched = 0;
   for (const row of cveRows) {
@@ -185,10 +256,10 @@ async function main() {
         const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=${encodeURIComponent(cveId)}`;
         const resp = await fetch(url, { headers: { 'User-Agent': 'threats.0rce.com/1.0' } });
         if (resp.status === 403 || resp.status === 429) {
-          await new Promise(r => setTimeout(r, 5000 * attempts)); // rate-limit backoff
+          await new Promise(r => setTimeout(r, 5000 * attempts));
           continue;
         }
-        if (!resp.ok) { ok = true; continue; } // 404 → CVE NVD'de yok, atla
+        if (!resp.ok) { ok = true; continue; }
         ok = true;
         const data: any = await resp.json();
         const vuln = data?.vulnerabilities?.[0]?.cve;
@@ -198,65 +269,54 @@ async function main() {
         const cpes = vuln.configurations?.[0]?.nodes?.[0]?.cpeMatch || [];
         const vendor = cpes[0]?.criteria?.split(':')[3] || '';
         const product = cpes[0]?.criteria?.split(':')[4] || '';
+        const cleanCvss = canonicalCvss(metrics?.baseScore);
         await pool.query(
           `INSERT INTO cve_enrichment (cve_id, cvss_v3, description, vendor, product, published_date, last_enriched_at)
            VALUES ($1, $2, $3, $4, $5, $6, NOW())
            ON CONFLICT (cve_id) DO UPDATE SET cvss_v3=$2, description=$3, vendor=$4, product=$5, last_enriched_at=NOW()`,
-          [cveId, metrics?.baseScore ?? null, desc, vendor, product, vuln.published || null]
+          [cveId, cleanCvss, desc, vendor, product, vuln.published || null]
         );
         cveEnriched++;
       } catch (e) {
-        await new Promise(r => setTimeout(r, 3000 * attempts)); // ağ hatası backoff
+        await new Promise(r => setTimeout(r, 3000 * attempts));
       }
     }
-    await new Promise(r => setTimeout(r, 1200)); // NVD rate limit 5 req/s
+    await new Promise(r => setTimeout(r, 1200));
   }
   log(`  ${cveEnriched} CVE zenginleştirildi`);
 
-  // ── F. stats_summary yenile + veri temizliği ──
+  // ── F. Veri temizliği ──
   log('F. İstatistik yenileme + veri temizliği...');
   await pool.query(`REFRESH MATERIALIZED VIEW IF EXISTS stats_summary`).catch(() => {});
-  // actors.document_count: her aktörün adını içeren doküman sayısı
-  await pool.query(`
-    UPDATE actors a SET document_count = (
-      SELECT COUNT(*) FROM documents d WHERE d.actors IS NOT NULL AND a.name = ANY(d.actors)
-    ), updated_at = NOW()
-  `);
 
-  // Veri temizliği: content/summary eksiklerini doldur, duplicate sil
   await pool.query(`UPDATE documents SET content = summary WHERE (content IS NULL OR content='') AND summary IS NOT NULL AND summary != ''`);
   await pool.query(`UPDATE documents SET summary = title, content = COALESCE(NULLIF(content,''), title) WHERE (summary IS NULL OR summary='') AND title IS NOT NULL`);
+  // Duplicate title'leri sil
   await pool.query(`DELETE FROM documents d USING documents d2 WHERE d.id > d2.id AND d.title = d2.title`);
 
-  // CVE ID normalizasyonu: küçük harfli CVE'leri büyük harfe çevir
-  // (önce büyük harfli kardeşi olan satırları sil — UNIQUE constraint çakışmasını önle)
-  await pool.query(`
-    DELETE FROM document_cves dc USING document_cves dc2
-    WHERE dc.cve_id != UPPER(dc.cve_id) AND dc.document_id = dc2.document_id AND dc2.cve_id = UPPER(dc.cve_id)
-  `);
+  // CVE ID upper-case normalization (duplicate önlemek için önce temizle)
+  await pool.query(`DELETE FROM document_cves dc USING document_cves dc2 WHERE dc.cve_id != UPPER(dc.cve_id) AND dc.document_id = dc2.document_id AND dc2.cve_id = UPPER(dc.cve_id)`);
   await pool.query(`UPDATE document_cves SET cve_id = UPPER(cve_id) WHERE cve_id != UPPER(cve_id)`);
-  await pool.query(`
-    UPDATE documents SET cves = (SELECT ARRAY_AGG(DISTINCT UPPER(c)) FROM unnest(cves) c)
-    WHERE EXISTS (SELECT 1 FROM unnest(cves) c WHERE c != UPPER(c))
-  `);
+  await pool.query(`UPDATE documents SET cves = (SELECT ARRAY_AGG(DISTINCT UPPER(c)) FROM unnest(cves) c) WHERE EXISTS (SELECT 1 FROM unnest(cves) c WHERE c != UPPER(c))`);
 
-  // ── G. Kill chain phase atama (deterministik keyword eşleştirme) ──
+  // ── G. Kill chain (güçlü bağlam) ──
   log('G. Kill chain phase atama...');
   const KILLCHAIN: [string, string[]][] = [
-    ['recon', ['recon', 'scan', 'fingerprint', 'discovery', 'probe', 'osint', 'keşif', 'tarama', 'istihbarat']],
-    ['weaponize', ['weaponiz', 'malware develop', 'payload', 'exploit kit', 'doc weapon', 'zararlı yazılım', 'silahlandır']],
-    ['deliver', ['phishing', 'spam', 'malicious link', 'drive-by', 'watering hole', 'malvertising', 'oltalama', 'kimlik avı']],
-    ['exploit', ['exploit', 'cve-', 'rce', 'vulnerability', 'zero-day', 'zeroday', 'remote code', 'açıklık', 'istismar', 'güvenlik açığı']],
-    ['install', ['install', 'persistence', 'backdoor', 'implant', 'dropper', 'loader', 'webshell', 'arka kapı', 'kalıcılık']],
-    ['c2', ['c2', 'command and control', 'command-and-control', 'botnet', 'beacon', 'komuta kontrol']],
-    ['actions', ['exfiltrat', 'data theft', 'ransomware', 'encrypt', 'lateral movement', 'data leak', 'destroy', 'fidye', 'vergi sızıntısı', 'veri sızıntısı', 'şifrele']],
+    ['recon', ['reconnaissance', 'discovery scan', 'fingerprint', 'osint']],
+    ['weaponize', ['payload development', 'malware develop', 'exploit kit']],
+    ['deliver', ['spearphishing', 'watering hole', 'malvertising']],
+    ['exploit', ['exploit vulnerability', 'zero-day exploit', 'cve-\\d', 'remote code execution']],
+    ['install', ['persistence mechanism', 'backdoor implant', 'webshell dropper']],
+    ['c2', ['command-and-control', 'beacon traffic', 'botnet command']],
+    ['actions', ['data exfiltration', 'ransomware encryption', 'lateral movement']],
   ];
   let kcUpdated = 0;
   const { rows: kcDocs } = await pool.query<any>(`SELECT id, title, COALESCE(content,'') as content FROM documents WHERE kill_chain_phase IS NULL OR kill_chain_phase=''`);
   for (const d of kcDocs) {
     const text = (d.title + ' ' + d.content).toLowerCase();
     for (const [phase, kws] of KILLCHAIN) {
-      if (kws.some(k => text.includes(k))) {
+      const hits = keywordCount(text, kws);
+      if (hits >= 2 || (hits === 1 && phase === 'exploit' && /\bcve-\d/i.test(text))) {
         await pool.query(`UPDATE documents SET kill_chain_phase=$1 WHERE id=$2`, [phase, d.id]);
         kcUpdated++;
         break;
@@ -265,7 +325,7 @@ async function main() {
   }
   log(`  ${kcUpdated} dokümana kill chain atandı`);
 
-  // ── H. AI summary üretimi (deterministik — gerçek metinden) ──
+  // ── H. AI summary üretimi ──
   log('H. AI summary üretimi...');
   const { rows: sumDocs } = await pool.query<any>(
     `SELECT id, title, COALESCE(summary,'') as summary, COALESCE(content,'') as content,
@@ -275,11 +335,9 @@ async function main() {
   let sumUpdated = 0;
   for (const d of sumDocs) {
     const parts: string[] = [];
-    // 1) İlk cümle (lead)
     const text = (d.summary || d.content || d.title || '').trim();
     const firstSentence = text.split(/(?<=[.!?])\s+/)[0]?.slice(0, 280) || '';
     if (firstSentence) parts.push(firstSentence);
-    // 2) Entity özeti
     const entBits: string[] = [];
     if (Array.isArray(d.actors) && d.actors.length) entBits.push(`actors: ${d.actors.slice(0,3).join(', ')}`);
     if (Array.isArray(d.cves) && d.cves.length) entBits.push(`cves: ${d.cves.slice(0,3).join(', ')}`);
@@ -288,7 +346,6 @@ async function main() {
     if (d.kill_chain_phase) entBits.push(`phase: ${d.kill_chain_phase}`);
     if (d.severity) entBits.push(`severity: ${d.severity}/10`);
     if (entBits.length) parts.push('[' + entBits.join(' · ') + ']');
-    // 3) Kelime sayısı + dil notu
     parts.push(`${(d.content || '').split(/\s+/).filter(Boolean).length} words`);
     const aiSummary = parts.join(' ');
     if (aiSummary.trim()) {
