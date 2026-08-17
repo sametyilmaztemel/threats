@@ -50,7 +50,11 @@ async function main() {
   let windowNum = 0;
 
   while (start < new Date()) {
-    const windowEnd = new Date(Math.min(start.getTime() + WINDOW_DAYS * 86400_000, Date.now()));
+    // Delta modunda tek pencere yeterli (24 saat)
+    if (DELTA_HOURS > 0 && windowNum > 0) break;
+    const windowEnd = DELTA_HOURS > 0
+      ? new Date()
+      : new Date(Math.min(start.getTime() + WINDOW_DAYS * 86400_000, Date.now()));
     const startParam = start.toISOString().replace(/\.\d{3}Z$/, '.000');
     const endParam = windowEnd.toISOString().replace(/\.\d{3}Z$/, '.000');
     windowNum++;

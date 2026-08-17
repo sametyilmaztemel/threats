@@ -111,6 +111,7 @@ async function main() {
      JOIN sources s ON d.source_id = s.id
      WHERE s.enabled = true
        AND (d.word_count IS NULL OR d.word_count < 200)
+       AND d.fulltext_tried IS NULL
        AND d.url IS NOT NULL AND d.url LIKE 'http%'
      ORDER BY d.fetched_at DESC
      LIMIT ${MAX_DOCS}`
@@ -120,28 +121,32 @@ async function main() {
   let fetched = 0, updated = 0, skipped = 0, failed = 0;
   for (const d of rows) {
     let host = '';
-    try { host = new URL(d.url).hostname; } catch { skipped++; continue; }
-    if (SKIP_DOMAINS.some(sd => host.includes(sd))) { skipped++; continue; }
+    try { host = new URL(d.url).hostname; } catch { await pool.query(`UPDATE documents SET fulltext_tried = NOW() WHERE id = $1`, [d.id]); skipped++; continue; }
+    if (SKIP_DOMAINS.some(sd => host.includes(sd))) { await pool.query(`UPDATE documents SET fulltext_tried = NOW() WHERE id = $1`, [d.id]); skipped++; continue; }
+
+    // Her denenen dokümanı işaretle (başarılı olsun olmasın) — tekrar deneme yok
+    const markTried = pool.query(`UPDATE documents SET fulltext_tried = NOW() WHERE id = $1`, [d.id]);
 
     try {
       const html = await fetchWithWayback(d.url);
-      if (!html) { failed++; continue; }
+      if (!html) { await markTried; failed++; continue; }
       const text = extractMain(html);
       const words = text.split(/\s+/).filter(Boolean).length;
-      if (words < 50) { skipped++; continue; } // hâlâ kısa — challenge/JS sayfası
+      if (words < 50) { await markTried; skipped++; continue; } // hâlâ kısa — challenge/JS sayfası
 
       // Summary'dan fazlaysa güncelle (çok daha kısa olanı yazma)
       const summaryWords = (d.summary || '').split(/\s+/).filter(Boolean).length;
-      if (words <= summaryWords + 20) { skipped++; continue; }
+      if (words <= summaryWords + 20) { await markTried; skipped++; continue; }
 
       await pool.query(
-        `UPDATE documents SET content = $1, word_count = $2, fetched_at = NOW() WHERE id = $3`,
+        `UPDATE documents SET content = $1, word_count = $2, fetched_at = NOW(), fulltext_tried = NOW() WHERE id = $3`,
         [text, words, d.id]
       );
       updated++;
       fetched++;
       if (fetched % 100 === 0) log(`${fetched} çekildi...`);
     } catch (e: any) {
+      await markTried;
       if (e.name === 'AbortError') failed++;
       else failed++;
     }

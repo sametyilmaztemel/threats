@@ -264,6 +264,47 @@ async function writeIOCs(iocs: NormalizedIOC[], sourceId: number): Promise<numbe
   return inserted;
 }
 
+// ---------- PhishTank ----------
+// openphish → 302 → GitHub raw (429 rate-limit riskli)
+// phishing.army: doğrudan erişim, ~150K aktif phishing domain — ana kaynak
+const PHISH_FEEDS = [
+  'https://phishing.army/download/phishing_army_blocklist.txt',
+  'https://openphish.com/feed.txt',
+];
+
+async function ingestPhishTank(source: any): Promise<NormalizedIOC[]> {
+  let lastErr: Error | null = null;
+  for (const url of PHISH_FEEDS) {
+    try {
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': USER_AGENT },
+        signal: AbortSignal.timeout(45000),
+      });
+      if (!resp.ok) { lastErr = new Error(`HTTP ${resp.status}`); continue; }
+      const text = await resp.text();
+      // phishing.army: her satır bir domain; openphish: URL
+      const isArmy = url.includes('phishing.army');
+      const items = text.split('\n')
+        .map((l: string) => l.trim())
+        .filter((l: string) => l && !l.startsWith('#') && !l.includes(' '));
+      if (items.length === 0) { lastErr = new Error('empty feed'); continue; }
+      return items.slice(0, 20000).map((v: string) => ({
+        value: isArmy ? `http://${v}` : v,
+        type: isArmy ? 'domain' as IOCType : 'phishing_url' as IOCType,
+        first_seen: new Date(),
+        last_seen: new Date(),
+        confidence: 0.8,
+        tags: ['phishing'],
+        meta: { source: isArmy ? 'phishing.army' : 'openphish' },
+        ai_related: false,
+      }));
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('all phish feeds failed');
+}
+
 // ---------- Main ----------
 
 async function main() {
@@ -273,7 +314,8 @@ async function main() {
        AND (name ILIKE '%threatfox%'
             OR name ILIKE '%malwarebazaar%'
             OR name ILIKE '%urlhaus%'
-            OR name ILIKE '%feodo%')
+            OR name ILIKE '%feodo%'
+            OR name ILIKE '%phishtank%')
      ORDER BY name`
   );
 
@@ -288,6 +330,7 @@ async function main() {
       else if (/malwarebazaar/i.test(s.name)) iocs = await ingestMalwareBazaar(s);
       else if (/urlhaus/i.test(s.name)) iocs = await ingestURLhaus(s);
       else if (/feodo/i.test(s.name)) iocs = await ingestFeodo(s);
+      else if (/phishtank/i.test(s.name)) iocs = await ingestPhishTank(s);
       else { console.log(`  ${s.name}: skipped (no ingester)`); continue; }
     } catch (e: any) {
       console.error(`  ${s.name}: ERROR ${e.message}`);
