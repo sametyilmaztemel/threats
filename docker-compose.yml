@@ -102,6 +102,7 @@ services:
       - ./collector/push-misp.ts:/app/push-misp.ts:ro
       - ./collector/llm-summary.ts:/app/llm-summary.ts:ro
       - ./collector/sync-cves.ts:/app/sync-cves.ts:ro
+      - ./collector/collect-osv.ts:/app/collector/collect-osv.ts:ro
       - ./reports:/app/reports
     mem_limit: 256m
     depends_on:

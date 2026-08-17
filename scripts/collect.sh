@@ -24,6 +24,9 @@ else
   echo "collect-stix.ts yok — atlandı"
 fi
 
+echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] OSV.dev paket vuln collector başlıyor..."
+npx tsx collect-osv.ts || echo "osv hata (devam)"
+
 echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] CVE collector başlıyor (varsa)..."
 if [ -f collect-cve.ts ]; then
   npx tsx collect-cve.ts || echo "CVE hata (devam)"
