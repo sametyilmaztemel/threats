@@ -1,39 +1,43 @@
 name: production-smoke
 
-# threats.0rce.com production regression smoke — READ-ONLY.
-# Production'a yazma, DB migration, deploy veya backfill YAPMAZ; yalnız public endpoint'leri GET ile doğrular.
-# Secret gerektirmez (public endpoint'lerle çalışır).
+# threats.0rce.com production regression smoke - READ-ONLY.
+# Production'a yazma, DB migration, deploy veya backfill YAPMAZ; yalniz public endpoint'leri
+# HTTP GET ile dogrular. Secret gerektirmez (public endpoint'lerle calisir).
+# Not: major-version action pin kullanilir (v4); tam commit-SHA pinlemesi rota olarak
+# opsiyoneldir ve bakim yuku yaratir (docs/production-runbook.md'de aciklanir).
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'smoke (hızlı) veya audit (ağır/günlük)'
+        description: 'smoke (hizli) veya audit (agir/gunluk)'
         default: 'smoke'
         type: choice
         options: [smoke, audit]
       base_url:
-        description: 'Base URL (varsayılan https://threats.0rce.com)'
+        description: 'Base URL (varsayilan https://threats.0rce.com)'
         default: 'https://threats.0rce.com'
         type: string
   push:
     branches: [main]
     paths:
       - 'scripts/production-smoke.mjs'
+      - 'scripts/lib/parsers.mjs'
+      - 'test/**'
       - '.github/workflows/production-smoke.yml'
       - 'package.json'
   pull_request:
     branches: [main]
   schedule:
-    # Her 30 dakikada bir hızlı smoke
+    # Her 30 dakikada bir hizli smoke (cron GitHub'da yalniz default branch'te calisir)
     - cron: '*/30 * * * *'
 
-# Aynı anda üst üste production testi koşmasın
+# Ayni anda ustuste ayni production testini kosma
 concurrency:
   group: production-smoke
   cancel-in-progress: false
 
-# En düşük gerekli izinler
+# En dusuk gerekli izinler
 permissions:
   contents: read
 
@@ -41,11 +45,10 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Fork PR'larında cron/dispatch çalıştırma; public endpoint yine de güvenli ama gereksiz yükten kaçın
+    # Fork PR'larinda schedule/dispatch'in origin reposuna yazmasi gerekmez; yalnizca kendi PR'i calistir
     if: >-
-      (github.event_name == 'schedule' && github.repository == '0rce-Labs/threats-0rce') ||
-      (github.event_name == 'workflow_dispatch' && github.repository == '0rce-Labs/threats-0rce') ||
-      github.event_name != 'schedule'
+      !(github.event_name == 'schedule' && github.repository != '0rce-Labs/threats-0rce') &&
+      !(github.event_name == 'workflow_dispatch' && github.repository != '0rce-Labs/threats-0rce')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,39 +57,35 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
 
-      - name: Install (root dev deps yok)
-        run: npm install --package-lock=false --no-audit --no-fund || true
+      - name: Parser unit tests (node:test)
+        run: node --test test/production-smoke.test.mjs
 
-      - name: Determine mode (audit günlük)
+      - name: Determine mode (gunluk audit)
         id: mode
         run: |
-          # Eğer saat belirli bir zamandaysa ağır audit yap (günlük bir kez) — basit: her # diğer schedule aynı
-          # Basit kural: workflow_dispatch mode input varsa onu kullan; schedule'da audit günde 1 kez (UTC 04:05)
           MODE="smoke"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             MODE="${{ inputs.mode }}"
           elif [ "${{ github.event_name }}" = "schedule" ]; then
-            HOUR=$(date -u +%H)
-            MIN=$(date -u +%M)
+            HOUR=$(date -u +%H); MIN=$(date -u +%M)
             if [ "$HOUR" = "04" ] && [ "$MIN" = "05" ]; then MODE="audit"; fi
           fi
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
 
-      - name: Run production smoke (hızlı)
+      - name: Run smoke (hizli)
         if: steps.mode.outputs.mode == 'smoke'
+        id: smoke
         env:
           BASE_URL: ${{ inputs.base_url || 'https://threats.0rce.com' }}
         run: node scripts/production-smoke.mjs
-        continue-on-error: true # log'u topla, sonra exit'e çevir (aşağıda FAIL artifact)
 
-      - name: Run production audit (ağır, günde 1)
+      - name: Run audit (agir, gunluk)
         if: steps.mode.outputs.mode == 'audit'
+        id: audit
         env:
           BASE_URL: ${{ inputs.base_url || 'https://threats.0rce.com' }}
         run: node scripts/production-smoke.mjs --audit
-        continue-on-error: true
 
       - name: Upload logs on failure
         if: failure()
@@ -96,7 +95,5 @@ jobs:
           path: '*.log'
           if-no-files-found: ignore
 
-      # Test gerçekten geçip geçmediğini exit koduyla doğrula (continue-on-error yüzünden manuel)
-      - name: Fail if smoke failed
-        if: steps.mode.outputs.mode == 'smoke' && steps.smoke.outcome == 'failure'
-        run: exit 1
+      # Script exit kodu stage basarisizligini zaten yansitir (continue-on-error yok)
+      # Buraya ek fail check gerekmez; smoke/audit step'inin kendisi exit 1'de fail olur.

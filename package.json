@@ -5,7 +5,8 @@
   "description": "threats.0rce.com — CTI platform production smoke/audit test altyapısı. Read-only.",
   "scripts": {
     "smoke:production": "node scripts/production-smoke.mjs",
-    "audit:production": "node scripts/production-smoke.mjs --audit"
+    "audit:production": "node scripts/production-smoke.mjs --audit",
+    "test:parser": "node --test test/production-smoke.test.mjs"
   },
   "engines": {
     "node": ">=20"

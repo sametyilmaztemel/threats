@@ -12,6 +12,10 @@
 
 import assert from 'node:assert/strict';
 import { setTimeout as sleep } from 'node:timers/promises';
+import {
+  extractDocCount, parseSourceHealth, cspNonce, scriptNonces,
+  sitemapLocs, parseServerTiming,
+} from './lib/parsers.mjs';
 
 const BASE = (process.env.BASE_URL || 'https://threats.0rce.com').replace(/\/$/, '');
 const MODE = process.argv.includes('--audit') ? 'audit' : 'smoke';
@@ -19,10 +23,8 @@ const UA = 'threats-production-smoke/1.0';
 const TIMEOUT = 20000; // 20s timeout
 const MAX_HTML = 4 * 1024 * 1024;
 
-// Değişken sayaçlar (env ile override). README'de neden env olduğu açıklanır.
-const EXPECTED_ACTIVE_SOURCES = Number(process.env.EXPECTED_ACTIVE_SOURCES || 18);
-const EXPECTED_HEALTHY_SOURCES = Number(process.env.EXPECTED_HEALTHY_SOURCES || 18);
-const EXPECTED_AI_THREATS = Number(process.env.EXPECTED_AI_THREATS || 349);
+// Exact false-positive regresyon sabitleri (kullanıcı bunları exact tutmamı istedi).
+// AI/sources/sitemap sayaçları env ile yönetilir; env yoksa yapısal invariant uygulanır.
 const EXPECTED_EARTH_LUSCA = Number(process.env.EXPECTED_EARTH_LUSCA || 1);
 const EXPECTED_CONTI = Number(process.env.EXPECTED_CONTI || 4);
 
@@ -64,34 +66,13 @@ async function get(url, headers = {}, timeout = TIMEOUT) {
   }
 }
 
+// Header'dan (Headers nesnesi) başlık — case-insensitive
 const headerGet = (h, name) => {
   for (const [k, v] of h.entries()) if (k.toLowerCase() === name.toLowerCase()) return v;
   return null;
 };
 
-// script etiketlerindeki nonce değerleri
-function scriptNonces(html) {
-  const out = [];
-  const re = /<script\b(?![^>]*\bnonce=)[^>]*>|<script\b[^>]*\bnonce="([A-Za-z0-9_=-]+)"/g;
-  // net metot: her <script...> açılışını bul
-  const re2 = /<script\b[^>]*>/g;
-  let m;
-  while ((m = re2.exec(html)) !== null) {
-    const chunk = m[0];
-    if (/\bnonce="([^"]+)"/.test(chunk)) {
-      out.push(/\bnonce="([^"]+)"/.exec(chunk)[1]);
-    } else {
-      out.push(null); // nonce taşımayan script
-    }
-  }
-  return out;
-}
-
-// CSP'den nonce değeri
-function cspNonce(csp) {
-  const m = csp && csp.match(/nonce-([A-Za-z0-9_=-]{16,})/);
-  return m ? m[1] : null;
-}
+// scriptNonces / cspNonce: ./lib/parsers.mjs'ten import edilir.
 
 // ---- 2. Route sağlık ----
 async function testRoutes() {
@@ -219,53 +200,71 @@ async function testDataRegression() {
   const conti = await get(BASE + '/actor/Conti', BROWSER_HEADERS);
   const contiCount = extractDocCount(conti.body);
   report(`Conti doc count == ${EXPECTED_CONTI}`, contiCount === EXPECTED_CONTI, `count=${contiCount}`);
-  // Sources 18/18 (footer React bölmesi: "18<!-- --> active · ...", unicode nbsp varyantları)
+  // Sources — exact değer yalnız env tanımlıysa; env yoksa yapısal invariant (healthy<=active)
   const src = await get(BASE + '/sources', BROWSER_HEADERS);
-  const foot = src.body.replace(/<!-- ?-->/g, '').replace(/[\u00a0\u2009\u202f\u00b7]/g, ' ');
-  const srcM = foot.match(/(\d+)\s+active\s+(\d+)\s+healthy/);
-  report(`Sources ${EXPECTED_ACTIVE_SOURCES}/${EXPECTED_HEALTHY_SOURCES}`, srcM && Number(srcM[1]) === EXPECTED_ACTIVE_SOURCES && Number(srcM[2]) === EXPECTED_HEALTHY_SOURCES, srcM ? `${srcM[1]}/${srcM[2]}` : 'eşleşmedi');
-  // AI threats = 349
+  const sh = parseSourceHealth(src.body);
+  const expA = process.env.EXPECTED_ACTIVE_SOURCES ? Number(process.env.EXPECTED_ACTIVE_SOURCES) : null;
+  const expH = process.env.EXPECTED_HEALTHY_SOURCES ? Number(process.env.EXPECTED_HEALTHY_SOURCES) : null;
+  report('Sources: active/healthy integer', sh !== null && Number.isInteger(sh.active) && Number.isInteger(sh.healthy),
+    sh ? `${sh.active}/${sh.healthy}` : 'parse yok');
+  if (sh) report('Sources: healthy <= active', sh.healthy <= sh.active, `${sh.healthy} <= ${sh.active}`);
+  if (sh && sh.healthy < sh.active) warn('Sources: healthy < active (üretim alarmı)', `${sh.healthy}/${sh.active}`);
+  if (expA !== null && expH !== null && sh) {
+    report(`Sources exact == ${expA}/${expH}`, sh.active === expA && sh.healthy === expH, `${sh.active}/${sh.healthy}`);
+  } else {
+    report('Sources exact skippa (env yok, invariant yeterli)', sh !== null, 'invariant');
+  }
+
+  // AI threats — exact yalnız env tanımlıysa; env yoksa geçerli pozitif int + ani düşüş WARN + makul üst sınır
   const ai = await get(BASE + '/ai-threats', BROWSER_HEADERS);
   const aiCount = extractCount(ai.body);
-  report(`AI threats == ${EXPECTED_AI_THREATS}`, ai && (aiCount === EXPECTED_AI_THREATS || aiCount === 0), `count≈${aiCount}`);
+  const expAI = process.env.EXPECTED_AI_THREATS ? Number(process.env.EXPECTED_AI_THREATS) : null;
+  report('AI: pozitif integer', Number.isInteger(aiCount) && aiCount > 0, `count=${aiCount}`);
+  if (aiCount != null) {
+    // makul olmayan büyük sıçrama (legit büyüme değil) — örn. 10x üstü
+    if (aiCount > 20000) warn('AI: aşırı büyük (makul olmayan sıçrama)', `${aiCount}`);
+    // önceki sağlıklı taban altı ani düşüş — 349 tabanı
+    if (aiCount < 300) warn('AI: sağlıklı taban altı ani düşüş', `${aiCount}`);
+  }
+  if (expAI !== null) report(`AI exact == ${expAI}`, aiCount === expAI, `count=${aiCount}`);
+  else report('AI exact skip (env yok, invariant)', aiCount !== null && aiCount > 0, `count=${aiCount}`);
 }
 
-function extractDocCount(html) {
-  // Actor detay: "DOCUMENTS" başlık bloğundaki toplam sayı (en güvenilir) veya
-  // unique document link sayısı. UI React bölmesi nedeniyle çoklu pattern dene.
-  const docs = [...html.matchAll(/\/document\/(\d+)/g)].map(m => m[1]);
-  if (docs.length > 0) return new Set(docs).size; // unique document id sayısı
-  const blk = html.match(/DOCUMENTS[^0-9]{0,30}(\d{1,4})/i);
-  if (blk) return Number(blk[1]);
-  const m = html.match(/(\d+)\s+(?:document|docs|record|item)/i);
-  return m ? Number(m[1]) : null;
-}
 function extractCount(html) {
   // sayfa gövdesindeki ilk büyük sayı (AI threat toplamı üst kutularda)
-  const m = html.match(/>\s*(\d{2,5})\s*</);
+  const m = html && html.match(/>\s*(\d{2,5})\s*</);
   return m ? Number(m[1]) : null;
 }
 
-// ---- 6. Sitemap ----
+// extractDocCount: ./lib/parsers.mjs'ten import edilir (lib tanımı kullanılır).// ---- 6. Sitemap ----
 async function testSitemap() {
   console.log('\n== Sitemap ==');
   const sm = await get(BASE + '/sitemap.xml', { 'accept': 'application/xml' });
   report('/sitemap.xml 200 + XML', sm.status === 200 && /xml/.test(headerGet(sm.headers, 'content-type') || ''), `ct=${headerGet(sm.headers,'content-type')}`);
-  const locs = [...sm.body.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m => m[1]);
+  const locs = sitemapLocs(sm.body);
   report('sitemap index var', sm.body.includes('sitemapindex'), `${locs.length} parça`);
-  const expectedParts = ['static', 'cves-1', 'cves-2', 'cves-3', 'cves-4', 'actors-1', 'documents-1'];
-  const missing = expectedParts.filter(p => !locs.some(l => l.includes('sitemaps/' + p)));
-  report('7 parça + doğru isimler', locs.length === 7 && missing.length === 0, missing.length ? 'eksik: ' + missing.join(',') : `${locs.join(',')}`);
+  // Yapısal invariant: gerekli kategoriler bulunmalı (shard sayısı 7 sabit DEĞİL; CVE büyüyünce 8 olabilir)
+  const requiredCat = ['static', 'cves-', 'actors-', 'documents-'];
+  const missingCat = requiredCat.filter(cat => !locs.some(l => l.includes('sitemaps/' + cat)));
+  report('gerekli kategoriler var', missingCat.length === 0, missingCat.length ? 'eksik: ' + missingCat.join(',') : `${locs.length} shard`);
   report('duplicate loc YOK', new Set(locs).size === locs.length);
-  // her shard 200
+  // her shard 200 + shard içi yapısal (en fazla 50K URL, duplicate yok)
+  let totalUrls = 0;
   for (const l of locs) {
     const r = await get(l, { 'accept': 'application/xml' });
     report(`shard 200: ${l.split('/').pop()}`, r.status === 200);
-    if (MODE === 'audit') {
-      const urls = [...r.body.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m => m[1]);
-      report(`  shard ${l.split('/').pop()} url örneği 200`, urls.length > 0 ? (await get(urls[0])).status === 200 : false, `${urls.length} url`);
+    if (MODE === 'audit' && r.status === 200) {
+      const urls = sitemapLocs(r.body);
+      totalUrls += urls.length;
+      report(`  shard ${l.split('/').pop()} <=50K url`, urls.length <= 50000, `${urls.length} url`);
+      report(`  shard ${l.split('/').pop()} duplicate yok`, new Set(urls).size === urls.length);
+      report(`  shard ${l.split('/').pop()} örnek url 200`, urls.length > 0 ? (await get(urls[0])).status === 200 : false);
     }
   }
+  // Exact toplam yalnız env tanımlıysa
+  const expTotal = process.env.EXPECTED_SITEMAP_TOTAL ? Number(process.env.EXPECTED_SITEMAP_TOTAL) : null;
+  if (expTotal !== null && MODE === 'audit') report(`sitemap toplam == ${expTotal}`, totalUrls === expTotal, `${totalUrls}`);
+  else if (MODE === 'audit') report('sitemap invariant toplam >0', totalUrls > 0, `${totalUrls} url (${locs.length} shard)`);
 }
 
 // ---- 7. SEO ----
@@ -291,8 +290,9 @@ async function testPerformance() {
     const res = await get(BASE + r, BROWSER_HEADERS);
     const total = Date.now() - t0;
     const st = headerGet(res.headers, 'server-timing') || '';
-    const hit = /cache;desc="?HIT/.test(st);
-    const cw = (st.match(/cfWorker;dur=(\d+)/) || [])[1];
+    const pst = parseServerTiming(st);
+    const hit = pst.cache === 'HIT' || /cache;desc="?HIT/.test(st);
+    const cw = pst.workerDur != null ? pst.workerDur : (st.match(/cfWorker;dur=(\d+)/) || [])[1];
     if (hit && Number(cw) > 250) warn(`${r}: HIT cfWorker ${cw}ms > 250ms`);
     if (!hit && total > 8000) warn(`${r}: MISS total ${total}ms > 8s`);
     if (total > 20000) { report(`${r} timeout`, false, `${total}ms > 20s`); }
@@ -303,7 +303,10 @@ async function testPerformance() {
 // ---- ana akış ----
 async function main() {
   console.log(`Threats production smoke — BASE=${BASE}, MODE=${MODE}`);
-  console.log(`Sayaçlar: active=${EXPECTED_ACTIVE_SOURCES} healthy=${EXPECTED_HEALTHY_SOURCES} ai=${EXPECTED_AI_THREATS} lusca=${EXPECTED_EARTH_LUSCA} conti=${EXPECTED_CONTI}`);
+  console.log(`Sayaçlar: lusca=${EXPECTED_EARTH_LUSCA} conti=${EXPECTED_CONTI} ` +
+    `(AI/sources/sitemap: ${process.env.EXPECTED_AI_THREATS ? 'exact=' + process.env.EXPECTED_AI_THREATS : 'invariant'} / ` +
+    `${process.env.EXPECTED_ACTIVE_SOURCES ? 'exact' : 'invariant'} / ` +
+    `${process.env.EXPECTED_SITEMAP_TOTAL ? 'exact' : 'invariant'})`);
 
   await testRoutes();
   await testCspNonce();

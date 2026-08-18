@@ -16,8 +16,10 @@ tekrar oluşmasını otomatik tespit eden READ-ONLY test altyapısını açıkla
 | Dosya | Rol |
 |---|---|
 | `scripts/production-smoke.mjs` | Ana test script'i (Node built-in fetch/assert, bağımlılık yok) |
+| `scripts/lib/parsers.mjs` | Saf/import edilebilir HTML/header parser'ları (birim testli) |
+| `test/production-smoke.test.mjs` | Parser birim testleri (`node --test`) |
 | `.github/workflows/production-smoke.yml` | 30dk smoke + günlük audit CI |
-| `package.json` | npm script tanımları |
+| `package.json` | npm script tanımları (smoke:production / audit:production / test:parser) |
 
 ## Local çalıştırma
 
@@ -31,6 +33,10 @@ npm run smoke:production
 node scripts/production-smoke.mjs --audit
 npm run audit:production
 
+# Parser birim testleri
+node --test test/production-smoke.test.mjs
+npm run test:parser
+
 # Farklı ortam (staging/local)
 BASE_URL=https://staging.threats.0rce.com node scripts/production-smoke.mjs
 ```
@@ -42,19 +48,40 @@ BASE_URL=https://staging.threats.0rce.com node scripts/production-smoke.mjs
 - **WARN**: performans eşikleri (HIT cfWorker > 250ms, MISS total > 8s). İlk aşamada build'i
   KIRMAZ; yalnız uyarır. 20s üstü ise timeout = FAIL.
 
-## Beklenen sayaç environment variable'ları
+## Sabit invariant vs repository variable
 
-Exact değerler zamanla değişebilir (yeni kaynak, yeni AI tehdit, yeni doküman). Kodda
-hardcode'lamak yanlış pozitiflere yol açar; bu yüzden environment variable ile override edilir.
+Exact sayaç değerlerini kör sabit kabul etmek yanlış pozitife yol açar. İki katman:
 
-| Env | Varsayılan | Açıklama |
-|---|---|---|
-| `BASE_URL` | `https://threats.0rce.com` | Test hedefi |
-| `EXPECTED_ACTIVE_SOURCES` | `18` | /sources aktif kaynak sayısı |
-| `EXPECTED_HEALTHY_SOURCES` | `18` | /sources healthy sayısı |
-| `EXPECTED_AI_THREATS` | `349` | /ai-threats toplamı |
-| `EXPECTED_EARTH_LUSCA` | `1` | actor/Earth Lusca doc sayısı |
-| `EXPECTED_CONTI` | `4` | actor/Conti doc sayısı |
+**Sabit invariant (env gerektirmez, her zaman çalışır):**
+- AI threats: geçerli pozitif integer + ani düşüş/makul olmayan sıçrama WARN'ı.
+- Sources: active/healthy integer + `healthy <= active` (healthy < active ise operasyon alarmı).
+- Sitemap: gerekli kategoriler (`static/cves-/actors-/documents-`) bulunmalı, her shard
+  en fazla 50.000 URL, duplicate yok, her shard HTTP 200.
+
+**Repository variable (yalnız env açıkça tanımlıysa exact kontrol edilir):**
+Exact değer değiştiğinde (legit veri artışı) sadece env'i güncelle — testi kapatma.
+Bu değerler CI'da repository variable olarak da set edilebilir.
+
+| Env | Açıklama |
+|---|---|
+| `BASE_URL` | Test hedefi (varsayılan https://threats.0rce.com) |
+| `EXPECTED_ACTIVE_SOURCES` | Tanımlıysa exact active kontrolü (yoksa invariant) |
+| `EXPECTED_HEALTHY_SOURCES` | Tanımlıysa exact healthy kontrolü |
+| `EXPECTED_AI_THREATS` | Tanımlıysa exact AI toplamı (yoksa pozitif-int invariant) |
+| `EXPECTED_SITEMAP_TOTAL` | Tanımlıysa audit'te exact toplam URL kontrolü |
+| `EXPECTED_EARTH_LUSCA` | Exact regresyon (varsayılan 1) — false-positive koruması |
+| `EXPECTED_CONTI` | Exact regresyon (varsayılan 4) — false-positive koruması |
+
+`EXPECTED_EARTH_LUSCA=1` ve `EXPECTED_CONTI=4` kasıtlı exact'tir: aktör ilişki sayaçlarında
+yanlış eşleşme (Earth Lusca 4255-1 gibi) ciddi bir regresyondur ve sabit beklenir.
+
+**Meşru veri artışında nasıl güncellenir:**
+1. FAIL gerçek bir regresyon mu, yoksa legit büyüme mi olduğunu doğrula (akademik dürüstlük,
+   kaynak/veri gerçekten arttı mı).
+2. Legit ise ilgili `EXPECTED_*` env'in güncel değerini CI repository variable'da set et
+   (yeni değer aşırı uç değilse).
+3. İnvariant katmanı (pozitif int, healthy<=active, <=50K shard) zaten legit büyümeye toleranslı.
+4. Değilse (tutarsız/örnek dışı artış) kök nedeni çöz — testi kapatma.
 
 ## Bir test bozulduğunda kontrol sırası
 
