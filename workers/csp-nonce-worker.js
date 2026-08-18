@@ -1,36 +1,27 @@
-// csp-nonce-worker.js — Cloudflare Worker: threats.0rce.com HTML'ine unique CSP nonce enjekte eder.
-// - Her <script> etiketine unique nonce attribute ekler.
-// - Content-Security-Policy header'ını nonce'lu üretir (script-src 'self' 'nonce-...').
-// - HTML yanıtları edge'de cache'lenmemeli (no-store) ki nonce tekrar kullanılmasın.
-// - Static asset'ler (_next/static, css, js, images, sitemap) Worker'a uğramadan cache'lenir.
-// Deploy: wrangler bu dosyayla kurulur, zone route threats.0rce.com/* -> worker.
+// csp-nonce-worker.js — Cloudflare Worker: unique per-request CSP nonce.
+// Mimarisi (samet spesifikasyonu):
+//  - Yalnızca normal document HTML isteklerini dönüştürür (Accept: text/html, GET/HEAD).
+//  - Origin'den gelen HAM (nonce'suz) HTML', Cache API'de (s-maxage'e yakın) tutulur.
+//  - Her kullanıcı isteğinde yeni kriptografik nonce üretilir.
+//  - Cache'lenmiş ham HTML, kullanıcıya gönderilmeden hemen önce HTMLRewriter ile dönüştürülür.
+//  - Tüm <script> etiketlerine aynı isteğin nonce'u eklenir.
+//  - Response CSP başlığına yalnızca o response'un nonce'u yazılır.
+//  - Nonce eklenmiş son kullanıcı cevabı tekrar ortak cache'e yazılmaz. (transform edilen memory'de durur)
+//  - static asset/API/RSC/prefetch/JSON/XML/sitemap dönüştürülmez.
+//  - 3xx/4xx/5xx cache'lenmez. Auth/RSC/private bypass. cf-cache-status sahtelenmez.
 
-// Bu Worker, tunnel'dan gelen origin'e fetch eder ve HTML'i nonce'larla işler.
-// NOT: Bu gerçek çözümde origin'e (tunnel arkası 127.0.0.1:27100) fetch yapar.
-
-const NONCE_LEN = 32;
+const NONCE_BYTES = 16; // 128 bit
 function genNonce() {
-  // crypto.getRandomValues ile 32byte -> base64url
-  const arr = new Uint8Array(NONCE_LEN);
+  const arr = new Uint8Array(NONCE_BYTES);
   crypto.getRandomValues(arr);
   return btoa(String.fromCharCode(...arr)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-// HTMLRewriter: her script etiketine nonce ekle
-async function handleHTML(response, nonce) {
-  const htmlRewriter = new HTMLRewriter();
-  htmlRewriter.on('script', {
-    element(el) { el.setAttribute('nonce', nonce); }
-  });
-  const newResponse = htmlRewriter.transform(response);
-  return newResponse;
 }
 
 function buildCSP(nonce) {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}'`,
-    "style-src 'self' 'unsafe-inline'",
+    "style-src 'self'",
     "img-src 'self' data: https:",
     "font-src 'self' data:",
     "connect-src 'self' https:",
@@ -41,38 +32,72 @@ function buildCSP(nonce) {
   ].join('; ');
 }
 
+function shouldBypass(request) {
+  const url = new URL(request.url);
+  const p = url.pathname;
+  if (!['GET','HEAD'].includes((request.method||'').toUpperCase())) return true;
+  if (p.startsWith('/_next/static') || p.startsWith('/_next/image') || p.startsWith('/favicon') ||
+      p.startsWith('/sitemaps') || p === '/sitemap.xml' || p.includes('og.png')) return true;
+  if (p.startsWith('/api/') || p.startsWith('/admin') || p.startsWith('/auth') || p.startsWith('/bookmarks')) return true;
+  if (request.headers.get('RSC')==='1' || request.headers.get('rsc')==='1' ||
+      request.headers.get('Next-Router-Prefetch')==='1' || request.headers.get('Next-Router-State-Tree')) return true;
+  if (request.headers.get('authorization') || (request.headers.get('cookie')||'').includes('session')) return true;
+  const accept = request.headers.get('Accept')||'';
+  if (accept && !accept.includes('text/html')) return true;
+  return false;
+}
+
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    // Static assetler -> Worker'ı bypass (origin'e proxy, CF normal cache)
-    if (url.pathname.startsWith('/_next/static') || url.pathname.startsWith('/favicon') || url.pathname.includes('og.png') || url.pathname.startsWith('/sitemaps') || url.pathname === '/sitemap.xml') {
-      return fetch(request);
+    if (shouldBypass(request)) {
+      return fetch(request); // origin'e dokunmadan proxy (static/asset/API/RSC/prefetch)
     }
 
-    // Origin'e fetch (tunnel arkası). Origin base'i env'den.
-    const originBase = env.ORIGIN || 'http://127.0.0.1:27100';
-    const originUrl = originBase + url.pathname + url.search;
-    const originReq = new Request(originUrl, request);
+    const url = new URL(request.url);
+    const originBase = env.ORIGIN || 'https://threats.0rce.com';
+    // Cache key: path + query string dahil (farklı query = farklı sayfa)
+    const cacheKeyUrl = 'https://' + (env.CACHE_HOST || 'csp-threats-cache') + url.pathname + url.search;
+    const cache = caches.default;
 
     try {
-      const originResp = await fetch(originReq);
-      const nonce = genNonce();
-      const contentType = originResp.headers.get('content-type') || '';
-      let finalResp = originResp;
+      // 1) Ham HTML'i cache'ten dene
+      let originResp = await cache.match(cacheKeyUrl);
 
-      // HTML ise nonce ekle
-      if (contentType.includes('text/html')) {
-        finalResp = await handleHTML(originResp, nonce);
-        // CSP header üret
-        finalResp.headers.set('Content-Security-Policy', buildCSP(nonce));
-        // Nonce'lu HTML'i cache'leme (unique nonce korunur)
-        finalResp.headers.set('Cache-Control', 'public, no-store');
-        finalResp.headers.delete('Cloudflare-CDN-Cache-Control');
+      // 2) Cache'te yoksa origin'den çekip cache'e yaz (HAM HTML — nonce'suz)
+      if (!originResp) {
+        const originReq = new Request(originBase + url.pathname + url.search, request);
+        originResp = await fetch(originReq);
+        if (originResp.status >= 300) return originResp; // hata cache'leme
+        const ct = originResp.headers.get('content-type')||'';
+        if (!ct.includes('text/html')) return originResp;
+        // Ham HTML'i 120s cache'e yaz (origin bunu zaten s-maxage ile istiyor)
+        const r = new Response(originResp.body, { headers: { 'content-type': ct } });
+        ctx.waitUntil(cache.put(cacheKeyUrl, r.clone()));
+      } else {
+        // Stale ham HTML kullanılırken arka planda tazele
+        ctx.waitUntil((async()=>{
+          const fresh = await fetch(originBase + url.pathname + url.search, request);
+          if (fresh.status < 300) await cache.put(cacheKeyUrl, fresh.clone());
+        })());
       }
-      // CSP Report-Only (ilk aşamada ihlalleri izle)
-      // finalResp.headers.set('Content-Security-Policy-Report-Only', buildCSP(nonce));
 
-      return finalResp;
+      // 3) Unique nonce üret + HTMLRewriter ile script'lere ekle
+      const nonce = genNonce();
+      const rewriter = new HTMLRewriter();
+      rewriter.on('script', { element(el) { el.setAttribute('nonce', nonce); } });
+      const transformed = rewriter.transform(originResp);
+
+      // 4) CSP başlığı + transform edilmiş response'u cache'E YAZMA (memory katmanında kalır)
+      const finalHeaders = new Headers(transformed.headers);
+      finalHeaders.set('Content-Security-Policy', buildCSP(nonce));
+      finalHeaders.set('Cache-Control', 'private, no-store'); // nonce'lu HTML paylaşılmaz
+      finalHeaders.delete('Cloudflare-CDN-Cache-Control');
+
+      return new Response(transformed.body, {
+        status: originResp.status,
+        statusText: originResp.statusText,
+        headers: finalHeaders,
+      });
     } catch (e) {
       return new Response('Worker error: ' + e.message, { status: 502 });
     }
