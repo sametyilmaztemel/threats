@@ -4,6 +4,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export function middleware(req: NextRequest) {
+  // MADDE 2 güvenlik: origin-threats.0rce.com yalnızca Worker'ın bildiği
+  // X-Origin-Auth secret'ı ile erişilebilir olmalı (halka açık bypass değil).
+  // Host header'ına bak (req.nextUrl.hostname CF tunnel'da farklı olabiliyor).
+  const host = (req.headers.get('host') || req.nextUrl.hostname || '').toLowerCase();
+  if (host.startsWith('origin-threats')) {
+    const expected = process.env.ORIGIN_AUTH_SECRET || '';
+    const provided = req.headers.get('x-origin-auth') || '';
+    if (!expected || provided !== expected) {
+      return new NextResponse('Forbidden', { status: 403 });
+    }
+  }
+
   const res = NextResponse.next();
 
   // Nonce-based CSP için request header'ı
