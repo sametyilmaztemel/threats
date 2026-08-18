@@ -1,9 +1,14 @@
+import type { Metadata } from 'next';
 import { getSources } from '@/lib/db';
 import { relativeTime } from '@/lib/format';
 
 export const revalidate = 300; // ISR 5dk cache
 
 const CATEGORIES = ['all', 'vendor', 'news', 'official', 'ai', 'ioc', 'ai_research', 'attacker_ips', 'c2_ips', 'ssl_blacklist', 'malicious_urls', 'cve_exploit', 'phishing_urls', 'local'];
+
+
+export async function generateMetadata(): Promise<Metadata> { return { title: 'SOURCES',
+  alternates: { canonical: '/sources' }, openGraph: { url: '/sources', title: 'SOURCES' } }; }
 
 export default async function SourcesPage({ searchParams }: { searchParams: { cat?: string } }) {
   const cat = searchParams.cat || 'all';

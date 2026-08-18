@@ -1,9 +1,14 @@
+import type { Metadata } from 'next';
 import { getStats, getReportSourceHealth } from '@/lib/db';
 import { query } from '@/lib/db';
 import Breadcrumb from '@/components/layout/Breadcrumb';
 import { formatNumber } from '@/lib/format';
 
 export const revalidate = 300; // ISR 5dk cache (force-dynamic kaldırıldı: beraber çalışmazlar)
+
+
+export async function generateMetadata(): Promise<Metadata> { return { title: 'STATS',
+  alternates: { canonical: '/stats' }, openGraph: { url: '/stats', title: 'STATS' } }; }
 
 export default async function StatsPage() {
   const [stats, sources] = await Promise.all([getStats(), getReportSourceHealth()]);

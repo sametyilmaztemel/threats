@@ -24,10 +24,12 @@ export function middleware(req: NextRequest) {
     'camera=(), microphone=(), geolocation=(), interest-cohort=()'
   );
 
-  // CSP (Madde 14) — minimum unsafe-inline (Next.js inline scripts nedeniyle)
+  // CSP (Madde 4/14 hardening) — unsafe-eval KALDIRILDI (production).
+  // unsafe-inline script-src'de Next.js hydration inline script'leri için tutuluyor
+  // (Next.js App Router $RC/inline modules). unsafe-eval production'da gereksiz.
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    "script-src 'self' 'unsafe-inline'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
     "font-src 'self' data:",

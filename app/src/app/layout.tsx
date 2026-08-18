@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 60;
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://threats.0rce.com'),
   title: {
     default: 'threats.0rce.com — Threat Intelligence',
     template: '%s | threats.0rce.com',
@@ -15,10 +16,22 @@ export const metadata: Metadata = {
   description: 'Aggregated cyber threat intelligence. Real-time vulnerabilities, IOCs, threat actors, and AI-specific attacks.',
   // Madde 13: noindex kaldırıldı (sistem public). robots meta üzerinden yönetilebilir.
   robots: { index: true, follow: true, googleBot: { index: true, follow: true } },
+  // Madde 6: canonical + OG + twitter image — absolutize via metadataBase
+  alternates: { canonical: '/' },
   openGraph: {
-    title: 'threats.0rce.com',
-    description: 'Aggregated cyber threat intelligence.',
     type: 'website',
+    url: '/',
+    siteName: 'threats.0rce.com',
+    title: 'threats.0rce.com — Threat Intelligence',
+    description: 'Aggregated cyber threat intelligence. Real-time vulnerabilities, IOCs, threat actors, and AI-specific attacks.',
+    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'threats.0rce.com' }],
+    locale: 'en_US',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'threats.0rce.com — Threat Intelligence',
+    description: 'Aggregated cyber threat intelligence.',
+    images: ['/og.png'],
   },
 };
 

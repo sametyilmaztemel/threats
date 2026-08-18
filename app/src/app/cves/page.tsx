@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getCVEList, getCVECount } from '@/lib/db';
 import Breadcrumb from '@/components/layout/Breadcrumb';
 import { canonicalCvss, severityFromCvss } from '@/lib/severity';
@@ -26,6 +27,10 @@ function cvssColor(score: number | string | null | undefined): string {
 function cvssLabel(score: number | string | null | undefined): string {
   return severityFromCvss(score as any).toUpperCase();
 }
+
+
+export async function generateMetadata(): Promise<Metadata> { return { title: 'CVES',
+  alternates: { canonical: '/cves' }, openGraph: { url: '/cves', title: 'CVES' } }; }
 
 export default async function CVEsPage({ searchParams }: { searchParams: { q?: string; sev?: string; vendor?: string; sort?: string; range?: string; page?: string } }) {
   const page = Math.max(1, parseInt(searchParams.page || '1') || 1);

@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getActors } from '@/lib/db';
 
 export const revalidate = 300; // ISR 5dk cache
@@ -7,6 +8,10 @@ const TYPES = ['all', 'apt', 'ransomware-gang', 'financially-motivated', 'hackti
 function actorSlug(name: string): string {
   return encodeURIComponent(name);
 }
+
+
+export async function generateMetadata(): Promise<Metadata> { return { title: 'ACTORS',
+  alternates: { canonical: '/actors' }, openGraph: { url: '/actors', title: 'ACTORS' } }; }
 
 export default async function ActorsPage({ searchParams }: { searchParams: { type?: string } }) {
   const type = searchParams.type || 'all';

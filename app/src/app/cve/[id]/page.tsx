@@ -16,9 +16,12 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   const { rows } = await query<any>(`SELECT cve_id, cvss_v3, description FROM cve_enrichment WHERE cve_id=$1`, [params.id]);
   if (!rows[0]) return { title: 'CVE' };
   const c = rows[0];
+  const cveId = params.id.toUpperCase();
   return {
     title: `${c.cve_id}${c.cvss_v3 !== null ? ` (CVSS ${c.cvss_v3})` : ''}`,
     description: (c.description || '').slice(0, 155),
+    alternates: { canonical: `/cve/${cveId}` }, // Madde 6
+    openGraph: { url: `/cve/${cveId}`, title: c.cve_id, images: ['/og.png'] },
   };
 }
 

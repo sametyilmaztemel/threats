@@ -1,8 +1,13 @@
+import type { Metadata } from 'next';
 import { getGraphData } from '@/lib/db';
 import GraphView from '@/components/GraphView';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 3600; // 1 saat cache
+
+
+export async function generateMetadata(): Promise<Metadata> { return { title: 'GRAPH',
+  alternates: { canonical: '/graph' }, openGraph: { url: '/graph', title: 'GRAPH' } }; }
 
 export default async function GraphPage() {
   const { nodes, edges } = await getGraphData();

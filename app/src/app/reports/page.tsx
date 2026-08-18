@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getStats, getReportSectorSummary, getReportActorTimeline, getReportKillChain, getReportSourceHealth, getReportTopIOCs, getReportWeeklyDigest } from '@/lib/db';
 import { formatNumber } from '@/lib/format';
 import Breadcrumb from '@/components/layout/Breadcrumb';
@@ -27,6 +28,10 @@ const SECTOR_COLORS: Record<string, string> = {
   defense: '#a05cff', technology: '#00b4d8', telecom: '#ff9500',
   energy: '#ff5c5c', retail: '#ffd60a',
 };
+
+
+export async function generateMetadata(): Promise<Metadata> { return { title: 'REPORTS',
+  alternates: { canonical: '/reports' }, openGraph: { url: '/reports', title: 'REPORTS' } }; }
 
 export default async function ReportsPage() {
   const [stats, sectors, actorTimeline, killChain, sources, topIocs, weekly] = await Promise.all([

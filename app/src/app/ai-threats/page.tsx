@@ -1,8 +1,13 @@
+import type { Metadata } from 'next';
 import { getRecentDocuments, getStats } from '@/lib/db';
 import DocumentRow from '@/components/DocumentRow';
 import { formatNumber } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
+
+
+export async function generateMetadata(): Promise<Metadata> { return { title: 'AI-THREATS',
+  alternates: { canonical: '/ai-threats' }, openGraph: { url: '/ai-threats', title: 'AI-THREATS' } }; }
 
 export default async function AIThreatsPage({ searchParams }: { searchParams: { cat?: string } }) {
   const cat = searchParams.cat || '';

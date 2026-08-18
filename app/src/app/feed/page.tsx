@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { query, getSources } from '@/lib/db';
 import Link from 'next/link';
 import FacetRail from '@/components/ui/FacetRail';
@@ -61,6 +62,10 @@ interface SearchParams {
   lang?: string;
   page?: string;
 }
+
+
+export async function generateMetadata(): Promise<Metadata> { return { title: 'FEED',
+  alternates: { canonical: '/feed' }, openGraph: { url: '/feed', title: 'FEED' } }; }
 
 export default async function FeedPage({
   searchParams,

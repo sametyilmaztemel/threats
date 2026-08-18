@@ -21,6 +21,8 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   return {
     title: `${String(doc.title || 'Document').slice(0, 70)}${sev}`,
     description: (doc.summary || '').slice(0, 155),
+    alternates: { canonical: `/document/${id}` }, // Madde 6
+    openGraph: { url: `/document/${id}`, title: `Document ${id}`, images: ['/og.png'] },
   };
 }
 

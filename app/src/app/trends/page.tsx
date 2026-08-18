@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getDailySeverity, getDailyStats, getSectorKillChainCross, getActorTimeSeries, getCveAgeDistribution } from '@/lib/db';
 
 export const revalidate = 300; // ISR 5dk cache
@@ -13,6 +14,10 @@ const SECTOR_COLORS: Record<string, string> = {
   energy: '#ff5c5c', retail: '#ffd60a', other: '#555',
 };
 const AGE_COLORS: Record<string, string> = { '0-30d': '#ff3030', '31-90d': '#ff5c5c', '91-365d': '#ffd60a', '1y+': '#00d97e' };
+
+
+export async function generateMetadata(): Promise<Metadata> { return { title: 'TRENDS',
+  alternates: { canonical: '/trends' }, openGraph: { url: '/trends', title: 'TRENDS' } }; }
 
 export default async function TrendsPage() {
   const [daily, growth, cross, actorSeries, cveAges] = await Promise.all([

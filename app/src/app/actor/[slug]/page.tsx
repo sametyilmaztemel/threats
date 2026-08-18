@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const name = params.slug.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
-  return { title: `Actor: ${name}` };
+  return { title: `Actor: ${name}`, alternates: { canonical: `/actor/${params.slug}` }, openGraph: { url: `/actor/${params.slug}`, title: `Actor: ${name}`, images: ['/og.png'] } };
 }
 
 export default async function ActorPage({ params }: { params: { slug: string } }) {

@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getIOCs, getIOCCount } from '@/lib/db';
 import { relativeTime } from '@/lib/format';
@@ -16,6 +17,10 @@ const TYPES: [string, string][] = [
   ['domain', 'DOMAIN'],
   ['hash', 'HASH (MD5/SHA)'],
 ];
+
+
+export async function generateMetadata(): Promise<Metadata> { return { title: 'IOCS',
+  alternates: { canonical: '/iocs' }, openGraph: { url: '/iocs', title: 'IOCS' } }; }
 
 export default async function IOCsPage({ searchParams }: { searchParams: { type?: string; page?: string } }) {
   const type = searchParams.type || 'all';
