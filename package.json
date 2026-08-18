@@ -1,0 +1,13 @@
+{
+  "name": "threats-0rce",
+  "version": "0.1.0",
+  "private": true,
+  "description": "threats.0rce.com — CTI platform production smoke/audit test altyapısı. Read-only.",
+  "scripts": {
+    "smoke:production": "node scripts/production-smoke.mjs",
+    "audit:production": "node scripts/production-smoke.mjs --audit"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
