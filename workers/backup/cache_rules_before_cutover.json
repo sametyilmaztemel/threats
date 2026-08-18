@@ -1,0 +1,50 @@
+{
+  "result": {
+    "description": "",
+    "id": "a913a837d2014ee39a93d80260170dd4",
+    "kind": "zone",
+    "last_updated": "2026-08-18T14:18:24.678191Z",
+    "name": "default",
+    "phase": "http_request_cache_settings",
+    "rules": [
+      {
+        "action": "set_cache_settings",
+        "action_parameters": {
+          "cache": true,
+          "edge_ttl": {
+            "default": 60,
+            "mode": "override_origin"
+          }
+        },
+        "description": "threats feed 60s (public allowlist, bypass auth/RSC)",
+        "enabled": true,
+        "expression": "(http.host eq \"threats.0rce.com\") and (http.request.uri.path contains \"/feed\") and (not http.request.headers[\"authorization\"][0] contains \"Bearer\") and (not http.request.headers[\"cookie\"][0] contains \"session\") and (http.request.headers[\"rsc\"][0] != \"1\") and (http.request.headers[\"next-router-prefetch\"][0] != \"1\")",
+        "id": "335d646a101349658313dca841e7747f",
+        "last_updated": "2026-08-18T14:18:24.678191Z",
+        "ref": "335d646a101349658313dca841e7747f",
+        "version": "1"
+      },
+      {
+        "action": "set_cache_settings",
+        "action_parameters": {
+          "cache": true,
+          "edge_ttl": {
+            "default": 300,
+            "mode": "override_origin"
+          }
+        },
+        "description": "threats public lists 300s (allowlist, bypass auth/RSC)",
+        "enabled": true,
+        "expression": "(http.host eq \"threats.0rce.com\") and (http.request.uri.path contains \"/actors\" or http.request.uri.path contains \"/stats\" or http.request.uri.path contains \"/trends\" or http.request.uri.path contains \"/sources\" or http.request.uri.path contains \"/iocs\" or http.request.uri.path contains \"/cves\" or http.request.uri.path contains \"/ai-threats\" or http.request.uri.path contains \"/reports\" or http.request.uri.path contains \"/graph\") and (not http.request.headers[\"authorization\"][0] contains \"Bearer\") and (not http.request.headers[\"cookie\"][0] contains \"session\") and (http.request.headers[\"rsc\"][0] != \"1\") and (http.request.headers[\"next-router-prefetch\"][0] != \"1\")",
+        "id": "607edbb2549b46f1ba8be752ef3bc27c",
+        "last_updated": "2026-08-18T14:18:24.678191Z",
+        "ref": "607edbb2549b46f1ba8be752ef3bc27c",
+        "version": "1"
+      }
+    ],
+    "version": "3"
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+}

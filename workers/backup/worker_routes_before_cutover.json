@@ -1,0 +1,13 @@
+{
+  "result": [
+    {
+      "id": "9431f302f213478b9b2abf8ff01b194d",
+      "pattern": "email.0rce.com/*",
+      "script": "0rce-email",
+      "request_limit_fail_open": false
+    }
+  ],
+  "success": true,
+  "errors": [],
+  "messages": []
+}
