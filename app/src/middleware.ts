@@ -25,12 +25,14 @@ export function middleware(req: NextRequest) {
   );
 
   // CSP (Madde 4/14 hardening) — unsafe-eval KALDIRILDI (production).
-  // unsafe-inline script-src'de Next.js hydration inline script'leri için tutuluyor
-  // (Next.js App Router $RC/inline modules). unsafe-eval production'da gereksiz.
+  // script-src 'unsafe-inline': Next.js App Router inline __next_f hydration için
+  // zorunlu (dinamik RSC payload, hash kullanılamaz) — Madde 3 Worker nonce'a
+  // geçilene kadar korunur. style-src 'unsafe-inline' kaldırıldı: HTML'de inline
+  // style attribute yok, tüm stiller external/class-based.
   const csp = [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline'",
-    "style-src 'self' 'unsafe-inline'",
+    "style-src 'self'",
     "img-src 'self' data: https:",
     "font-src 'self' data:",
     "connect-src 'self' https:",
@@ -53,10 +55,12 @@ export function middleware(req: NextRequest) {
 
   if (req.nextUrl.pathname !== '/bookmarks' && !pathname.startsWith('/api/') && !pathname.includes('/admin')) {
     if (isFeed) {
-      res.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+      // browser max-age=0, edge s-maxage=60 (CF edge s-maxage'i Cache-Control içinde okur;
+      // Cloudflare-CDN-Cache-Control tek başına edge'i doldurmuyor).
+      res.headers.set('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=120');
       res.headers.set('Cloudflare-CDN-Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
     } else if (isPublic) {
-      res.headers.set('Cache-Control', 'public, max-age=60, must-revalidate');
+      res.headers.set('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=300');
       res.headers.set('Cloudflare-CDN-Cache-Control', 'public, s-maxage=300, stale-while-revalidate=300');
     }
   }

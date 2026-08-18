@@ -32,5 +32,5 @@ export async function GET() {
     sitemaps.map(s => `  <sitemap><loc>${s}</loc></sitemap>`).join('\n') +
     '\n</sitemapindex>';
 
-  return new Response(body, { headers: { 'Content-Type': 'application/xml', 'Cache-Control': 'public, max-age=3600, must-revalidate', 'Cloudflare-CDN-Cache-Control': 'public, s-maxage=3600' } });
+  return new Response(body, { headers: { 'Content-Type': 'application/xml', 'Cache-Control': 'public, max-age=3600', 'Cloudflare-CDN-Cache-Control': 'public, s-maxage=3600' } });
 }
