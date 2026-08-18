@@ -1,0 +1,30 @@
+[Unit]
+Description=threats.0rce.com production monitor (dog gunlu cagrilir)
+# Not: production'da enable etme — once PR review + dry-run. Install komutu runbook'ta.
+Documentation=https://github.com/0rce-Labs/threats-0rce/blob/main/docs/monitoring-runbook.md
+
+[Service]
+Type=oneshot
+# Dedicated, minimum yetkili kullanici (systemd kullanicisi: gerekirse User=threats-monitor eklenecek)
+User=threats-monitor
+Group=threats-monitor
+# Cevre; secret iceren ALERT_WEBHOOK_URL burada DEĞIL — EnvironmentFile ile
+EnvironmentFile=-/etc/threats-monitor.env
+ExecStart=/usr/bin/env node /home/ubuntu/threats/scripts/production-monitor.mjs
+WorkingDirectory=/home/ubuntu/threats
+ReadOnlyPaths=/home/ubuntu/threats
+ProtectSystem=strict
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# Restart loop OLMAZ — oneshot, timer tetikler
+TimeoutStartSec=90
+
+# Loglar journald'a gider (normal stdout)
+StandardOutput=journal
+StandardError=journal

@@ -1,0 +1,12 @@
+[Unit]
+Description=threats.0rce.com production monitor timer (2-5 dk)
+# Ayni anda ikinci process baslatmaz (oneshot + Persisten). production'da enable etme.
+
+[Timer]
+OnActiveSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=60
+Persistent=false
+
+[Install]
+WantedBy=timers.target
