@@ -41,15 +41,24 @@ export function middleware(req: NextRequest) {
   ].join('; ');
   res.headers.set('Content-Security-Policy', csp);
 
-  // Madde 4: Kullanıcıya özel OLMAYAN dashboard sayfaları için Next/Edge
-  // no-store default'unu override et — CDN+ISR için s-maxage/stale-while-revalidate.
-  // CSP header'ı burada da korunur (üstte set edildi).
-  const cacheable = /\/(stats|sources|actors|trends)(\?|$)/.test(req.nextUrl.pathname);
-  if (cacheable) {
-    res.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=300');
-  } else if (/^\/(feed)(\?|$)/.test(req.nextUrl.pathname)) {
-    // feed: searchParams dinamik ama user-specific değil — max-age 60 (kısa ISR)
-    res.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+  // Madde 1: Browser ve Cloudflare edge cache sürelerini başlık bazında AYIR.
+  // Browser Cache TTL zone'dan "Respect Existing Headers" (0) yapıldı; CF artık
+  // origin'in Cache-Control'ünü override etmez. Burada:
+  //  - Cache-Control = browser için (kısa: stale olmasın)
+  //  - Cloudflare-CDN-Cache-Control = edge için (uzun: CDN cache)
+  // feed: browser 0s, edge 60s. Diğer public listeler: browser 60s, edge 300s.
+  const pathname = req.nextUrl.pathname;
+  const isFeed = pathname === '/feed' || pathname.startsWith('/feed');
+  const isPublic = /\/(stats|sources|actors|trends|iocs|cves|ai-threats|reports|graph)(\/|\?|$)/.test(pathname);
+
+  if (req.nextUrl.pathname !== '/bookmarks' && !pathname.startsWith('/api/') && !pathname.includes('/admin')) {
+    if (isFeed) {
+      res.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+      res.headers.set('Cloudflare-CDN-Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+    } else if (isPublic) {
+      res.headers.set('Cache-Control', 'public, max-age=60, must-revalidate');
+      res.headers.set('Cloudflare-CDN-Cache-Control', 'public, s-maxage=300, stale-while-revalidate=300');
+    }
   }
 
   return res;

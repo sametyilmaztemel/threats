@@ -87,5 +87,5 @@ export async function GET(req: NextRequest, { params }: { params: { name: string
     ).join('\n') +
     '\n</urlset>';
 
-  return new Response(body, { headers: { 'Content-Type': 'application/xml', 'Cache-Control': 'public, s-maxage=3600' } });
+  return new Response(body, { headers: { 'Content-Type': 'application/xml', 'Cache-Control': 'public, max-age=3600, must-revalidate', 'Cloudflare-CDN-Cache-Control': 'public, s-maxage=3600' } });
 }
