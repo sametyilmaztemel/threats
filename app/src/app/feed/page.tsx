@@ -1,4 +1,4 @@
-import { query } from '@/lib/db';
+import { query, getSources } from '@/lib/db';
 import Link from 'next/link';
 import FacetRail from '@/components/ui/FacetRail';
 import SearchBar from '@/components/ui/SearchBar';
@@ -220,6 +220,10 @@ export default async function FeedPage({
     offset,
   ]);
   const docs = docsResult.rows;
+
+  // Madde 8: Aktif kaynak sayısını dinamik olarak al (hardcoded "70+" yok)
+  const sourcesForCount = await getSources();
+  const activeSourceCount = sourcesForCount.filter((s: any) => s.enabled).length;
 
   // ---------- facet counts (each facet excludes itself) ----------
   // We rebuild per-facet conditions inline to keep param indices clean.
@@ -622,7 +626,9 @@ export default async function FeedPage({
         eyebrow="THREAT INTELLIGENCE FEED"
         title={`${total.toLocaleString()} ${total === 1 ? 'report' : 'reports'}`}
         subtitle={
-          hasAnyFilter ? 'Filtered results' : 'Latest from 70+ sources'
+          hasAnyFilter
+            ? `Filtered results from ${activeSourceCount} active sources`
+            : `Latest from ${activeSourceCount} active sources`
         }
       />
 

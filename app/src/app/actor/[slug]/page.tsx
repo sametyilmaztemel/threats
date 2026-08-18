@@ -8,6 +8,7 @@ import SeverityGauge from '@/components/ui/SeverityGauge';
 import BookmarkButton from '@/components/ui/BookmarkButton';
 import { format } from '@/lib/format';
 import type { Metadata } from 'next';
+import { MarkdownLite } from '@/components/MarkdownLite';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,7 +67,7 @@ export default async function ActorPage({ params }: { params: { slug: string } }
       <PageHeader
         eyebrow="THREAT ACTOR PROFILE"
         title={actor ? actor.name : name.toUpperCase()}
-        subtitle={actor?.description || `Intelligence corpus on ${name}`}
+        subtitle={actor?.description ? <MarkdownLite text={actor.description} /> : `Intelligence corpus on ${name}`}
         actions={
           actor ? (
             <div className="flex items-center justify-end gap-3">
@@ -191,7 +192,7 @@ export default async function ActorPage({ params }: { params: { slug: string } }
                 className="block p-3 md:p-4 border-b border-line hover:bg-panel transition-colors"
               >
                 <div className="flex items-start justify-between gap-3 md:gap-4 mb-2">
-                  <div className="text-[13px] md:text-[14px] font-light leading-tight flex-1 min-w-0 break-words">{d.title}</div>
+                  <div className="text-[13px] md:text-[14px] font-light leading-tight flex-1 min-w-0 break-words"><MarkdownLite text={d.title} /></div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {d.tlp && <TLPBadge tlp={d.tlp} size="sm" />}
                     {d.severity && <SeverityGauge value={d.severity} size="sm" />}

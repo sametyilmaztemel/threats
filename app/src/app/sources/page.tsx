@@ -2,6 +2,7 @@ import { getSources } from '@/lib/db';
 import { relativeTime } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 300; // 5dk cache
 
 const CATEGORIES = ['all', 'vendor', 'news', 'official', 'ai', 'ioc', 'ai_research', 'attacker_ips', 'c2_ips', 'ssl_blacklist', 'malicious_urls', 'cve_exploit', 'phishing_urls', 'local'];
 

@@ -1,6 +1,7 @@
 import { getDailySeverity, getDailyStats, getSectorKillChainCross, getActorTimeSeries, getCveAgeDistribution } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 300; // 5dk cache
 
 const PHASE_COLORS: Record<string, string> = {
   recon: '#00d97e', weaponize: '#ffd60a', deliver: '#ff9500',

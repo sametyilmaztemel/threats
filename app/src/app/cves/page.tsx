@@ -13,16 +13,18 @@ function fmtDate(d: string | null | undefined): string {
   return date.toISOString().split('T')[0];
 }
 
-function cvssColor(score: number | null): string {
-  if (score === null || score === undefined || !Number.isFinite(score)) return '#555';
-  if (score >= 9) return '#ff3030';
-  if (score >= 7) return '#ff5c5c';
-  if (score >= 4) return '#ffd60a';
+function cvssColor(score: number | string | null | undefined): string {
+  // Madde 4: pg numeric → string gelir; number'a normalize et
+  const n = canonicalCvss(score as any);
+  if (n === null) return '#555';
+  if (n >= 9) return '#ff3030';
+  if (n >= 7) return '#ff5c5c';
+  if (n >= 4) return '#ffd60a';
   return '#00d97e';
 }
 
-function cvssLabel(score: number | null): string {
-  return severityFromCvss(score).toUpperCase();
+function cvssLabel(score: number | string | null | undefined): string {
+  return severityFromCvss(score as any).toUpperCase();
 }
 
 export default async function CVEsPage({ searchParams }: { searchParams: { q?: string; sev?: string; vendor?: string; sort?: string; range?: string; page?: string } }) {

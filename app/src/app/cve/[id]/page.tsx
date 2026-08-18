@@ -8,6 +8,7 @@ import CopyButton from '@/components/ui/CopyButton';
 import BookmarkButton from '@/components/ui/BookmarkButton';
 import { format } from '@/lib/format';
 import type { Metadata } from 'next';
+import { MarkdownLite } from '@/components/MarkdownLite';
 
 export const dynamic = 'force-dynamic';
 
@@ -100,7 +101,7 @@ export default async function CVEPage({ params }: { params: { id: string } }) {
         eyebrow="CVE PROFILE"
         title={cveId}
         subtitle={
-          enrichment?.description ||
+          enrichment?.description ? <MarkdownLite text={enrichment.description} /> :
           `${docs.length} intelligence report${docs.length === 1 ? '' : 's'} reference this CVE`
         }
         actions={<div className="flex items-center gap-2"><BookmarkButton type="cve" id={cveId} title={cveId} /><CopyButton value={cveId} label="COPY CVE-ID" /></div>}
@@ -192,7 +193,7 @@ export default async function CVEPage({ params }: { params: { id: string } }) {
                 className="block p-3 md:p-4 border-b border-line hover:bg-panel transition-colors"
               >
                 <div className="flex items-start justify-between gap-3 md:gap-4 mb-2">
-                  <div className="text-[13px] md:text-[14px] font-light leading-tight flex-1 min-w-0 break-words">{d.title}</div>
+                  <div className="text-[13px] md:text-[14px] font-light leading-tight flex-1 min-w-0 break-words"><MarkdownLite text={d.title} /></div>
                   {d.severity && <SeverityGauge value={d.severity} size="sm" />}
                 </div>
                 <div className="text-[10px] text-dim font-mono">

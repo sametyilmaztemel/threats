@@ -21,6 +21,8 @@ export async function getRecentDocuments(limit = 50, aiOnly = false, aiCategory?
   const catJoin = aiCategory
     ? `JOIN ai_threats at ON at.document_id = d.id AND at.ai_category = $2`
     : '';
+  // Madde 6: ana sayfa Live Feed'i eski published_at kayıtlarını göstermesin.
+  // Sıralama önce en yeni ingested (fetched_at), eğer yoksa published_at.
   // Madde 4: DISTINCT ile duplicate dokümanları teke indir (ai_threats JOIN'i aynı
   // dokümanı birden çok kategori satırıyla çoğaltabilir)
   const { rows } = await query<any>(
@@ -30,14 +32,14 @@ export async function getRecentDocuments(limit = 50, aiOnly = false, aiCategory?
      LEFT JOIN sources s ON d.source_id = s.id
      ${catJoin}
      ${where}
-     ORDER BY d.id, COALESCE(d.published_at, d.fetched_at) DESC
+     ORDER BY d.id, COALESCE(d.fetched_at, d.published_at) DESC
      LIMIT $1`,
     aiCategory ? [limit, aiCategory] : [limit]
   );
   // DISTINCT + ORDER BY id karışımından sonra gerçek tarih sırasına göre yeniden sırala
   rows.sort((a: any, b: any) => {
-    const da = new Date(a.published_at || a.fetched_at).getTime();
-    const db = new Date(b.published_at || b.fetched_at).getTime();
+    const da = new Date(a.fetched_at || a.published_at).getTime();
+    const db = new Date(b.fetched_at || b.published_at).getTime();
     if (db !== da) return db - da;
     return b.id - a.id;
   });

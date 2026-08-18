@@ -13,11 +13,12 @@ export function canonicalCvss(input: unknown): number | null {
   return Math.round(n * 10) / 10;
 }
 
-export function severityFromCvss(cvss: number | null): Severity {
-  if (cvss === null || cvss === undefined || !Number.isFinite(cvss)) return 'unknown';
-  if (cvss >= 9.0) return 'critical';
-  if (cvss >= 7.0) return 'high';
-  if (cvss >= 4.0) return 'medium';
+export function severityFromCvss(cvss: number | string | null | undefined): Severity {
+  const n = canonicalCvss(cvss);
+  if (n === null) return 'unknown';
+  if (n >= 9.0) return 'critical';
+  if (n >= 7.0) return 'high';
+  if (n >= 4.0) return 'medium';
   return 'low';
 }
 
