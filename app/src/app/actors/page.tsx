@@ -1,7 +1,6 @@
 import { getActors } from '@/lib/db';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 300; // 5dk cache
+export const revalidate = 300; // ISR 5dk cache
 
 const TYPES = ['all', 'apt', 'ransomware-gang', 'financially-motivated', 'hacktivist', 'insider'];
 

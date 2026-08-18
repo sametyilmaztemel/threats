@@ -74,11 +74,12 @@ async function main() {
   let linked = 0, docCount = 0;
   const linkedDocIds = new Set<number>();
 
-  // a) host/domain eşleşmesi
+  // a) host/domain eşleşmesi — public-infra (classification='mentioned') bağlanmaz (Madde 2)
   for (let i = 0; i < values.length; i += 500) {
     const chunk = values.slice(i, i + 500);
     const { rows: iocRows } = await pool.query<any>(
-      `SELECT id, value, type FROM iocs WHERE LOWER(value) = ANY($1::text[])`,
+      `SELECT id, value, type FROM iocs
+       WHERE LOWER(value) = ANY($1::text[]) AND COALESCE(classification,'') != 'mentioned'`,
       [chunk]
     );
     for (const ioc of iocRows) {
@@ -134,10 +135,11 @@ async function main() {
       hashDocMap.get(h)!.add(d.id);
     }
   }
-  // ioc değerlerinden host çıkar ve eşleştir (chunk'lı)
+  // ioc değerlerinden host çıkar ve eşleştir (chunk'lı) — public-infra 'mentioned' bağlanmaz
   const { rows: allIocRows } = await pool.query<any>(
     `SELECT id, value, type FROM iocs
-     WHERE type IN ('malicious_url','phishing_url','domain','c2_ip','attacker_ip','ssl_sha1','md5','sha1','sha256')`
+     WHERE type IN ('malicious_url','phishing_url','domain','c2_ip','attacker_ip','ssl_sha1','md5','sha1','sha256')
+       AND COALESCE(classification,'') != 'mentioned'`
   );
   for (const ioc of allIocRows) {
       const v = ioc.value.toLowerCase();

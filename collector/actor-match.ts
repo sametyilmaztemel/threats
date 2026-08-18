@@ -16,6 +16,10 @@ export const SKIP_ALIASES: ReadonlySet<string> = new Set([
   'midnight', 'forest', 'blizzard', 'velvet', 'chollima',
   'silence', 'equation', 'continue', 'continuous', 'conditional',
   'wizard', 'spider',
+  // Madde 1/5: generic ürün/teknoloji adları — aktör eşleşmesinde FP üretir
+  // (ör. Earth Lusca alias'ı CHROMIUM → tüm Chromium OSV paketleri eşleşti)
+  'chromium', 'chrome', 'android', 'linux', 'windows', 'macos', 'ios',
+  'firefox', 'safari', 'edge', 'web', 'browser', 'github', 'gitlab',
 ]);
 
 export interface ActorMatch {

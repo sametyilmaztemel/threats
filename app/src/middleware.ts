@@ -39,6 +39,17 @@ export function middleware(req: NextRequest) {
   ].join('; ');
   res.headers.set('Content-Security-Policy', csp);
 
+  // Madde 4: Kullanıcıya özel OLMAYAN dashboard sayfaları için Next/Edge
+  // no-store default'unu override et — CDN+ISR için s-maxage/stale-while-revalidate.
+  // CSP header'ı burada da korunur (üstte set edildi).
+  const cacheable = /\/(stats|sources|actors|trends)(\?|$)/.test(req.nextUrl.pathname);
+  if (cacheable) {
+    res.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=300');
+  } else if (/^\/(feed)(\?|$)/.test(req.nextUrl.pathname)) {
+    // feed: searchParams dinamik ama user-specific değil — max-age 60 (kısa ISR)
+    res.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+  }
+
   return res;
 }
 

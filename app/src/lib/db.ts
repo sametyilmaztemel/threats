@@ -21,25 +21,25 @@ export async function getRecentDocuments(limit = 50, aiOnly = false, aiCategory?
   const catJoin = aiCategory
     ? `JOIN ai_threats at ON at.document_id = d.id AND at.ai_category = $2`
     : '';
-  // Madde 6: ana sayfa Live Feed'i eski published_at kayıtlarını göstermesin.
-  // Sıralama önce en yeni ingested (fetched_at), eğer yoksa published_at.
-  // Madde 4: DISTINCT ile duplicate dokümanları teke indir (ai_threats JOIN'i aynı
-  // dokümanı birden çok kategori satırıyla çoğaltabilir)
+  // Madde 3/6: effective_date = valid published_at varsa o, yoksa fetched_at.
+  // fetched_at backfill/reprocess sırasında now() olabilir → eski haberleri güncelmiş gibi
+  // göstermemek için published_at öncelikli. DISTINCT ON d.id duplicate'leri teke indirir.
   const { rows } = await query<any>(
     `SELECT DISTINCT ON (d.id) d.id, d.title, d.url, d.severity, d.published_at, d.fetched_at,
-            d.category, d.cves, d.actors, d.ai_threat, s.name as source_name, s.category as source_category
+            d.category, d.cves, d.actors, d.ai_threat, s.name as source_name, s.category as source_category,
+            COALESCE(NULLIF(d.published_at, 'epoch'::timestamptz), d.fetched_at) AS effective_date
      FROM documents d
      LEFT JOIN sources s ON d.source_id = s.id
      ${catJoin}
      ${where}
-     ORDER BY d.id, COALESCE(d.fetched_at, d.published_at) DESC
+     ORDER BY d.id, effective_date DESC
      LIMIT $1`,
     aiCategory ? [limit, aiCategory] : [limit]
   );
-  // DISTINCT + ORDER BY id karışımından sonra gerçek tarih sırasına göre yeniden sırala
+  // DISTINCT + ORDER BY id karışımından sonra gerçek effective_date'e göre yeniden sırala
   rows.sort((a: any, b: any) => {
-    const da = new Date(a.fetched_at || a.published_at).getTime();
-    const db = new Date(b.fetched_at || b.published_at).getTime();
+    const da = new Date(a.effective_date).getTime();
+    const db = new Date(b.effective_date).getTime();
     if (db !== da) return db - da;
     return b.id - a.id;
   });

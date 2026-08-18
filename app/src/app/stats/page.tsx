@@ -3,8 +3,7 @@ import { query } from '@/lib/db';
 import Breadcrumb from '@/components/layout/Breadcrumb';
 import { formatNumber } from '@/lib/format';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 300; // 5dk cache
+export const revalidate = 300; // ISR 5dk cache (force-dynamic kaldırıldı: beraber çalışmazlar)
 
 export default async function StatsPage() {
   const [stats, sources] = await Promise.all([getStats(), getReportSourceHealth()]);
