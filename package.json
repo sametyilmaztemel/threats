@@ -8,6 +8,7 @@
     "test:smoke": "node --test test/production-smoke.test.mjs",
     "test:monitor": "node --test test/production-monitor.test.mjs",
     "test:health": "node --test test/health.test.mjs",
+    "test:retry": "node --test test/http-retry.test.mjs",
     "smoke": "node scripts/production-smoke.mjs",
     "audit": "node scripts/production-smoke.mjs --audit",
     "monitor:check": "node scripts/production-monitor.mjs",

@@ -16,6 +16,7 @@ import {
   extractDocCount, parseSourceHealth, cspNonce, scriptNonces,
   sitemapLocs, parseServerTiming, parseLiveFeed, verifyLiveFeed,
 } from './lib/parsers.mjs';
+import { httpRetry } from './lib/monitor-core.mjs';
 
 const BASE = (process.env.BASE_URL || 'https://threats.0rce.com').replace(/\/$/, '');
 const MODE = process.argv.includes('--audit') ? 'audit' : 'smoke';

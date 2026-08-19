@@ -5,14 +5,30 @@ Documentation=https://github.com/0rce-Labs/threats-0rce/blob/main/docs/monitorin
 
 [Service]
 Type=oneshot
-# Dedicated, minimum yetkili kullanici (systemd kullanicisi: gerekirse User=threats-monitor eklenecek)
+# Dedicated, minimum yetkili kullanici
 User=threats-monitor
 Group=threats-monitor
+# State: /var/lib/threats-monitor/ (0750, systemd yonetir)
+StateDirectory=threats-monitor
+StateDirectoryMode=0750
+# Runtime: /run/threats-monitor/ (0750, tmpfs, lock dosyasi icin)
+RuntimeDirectory=threats-monitor
+RuntimeDirectoryMode=0750
 # Cevre; secret iceren ALERT_WEBHOOK_URL burada DEĞIL — EnvironmentFile ile
 EnvironmentFile=-/etc/threats-monitor.env
+# State/lock path: systemd tarafindan yonetilen dizinlere yonlendir (env override).
+# Production'da MONITOR_STATE_PATH=/var/lib/threats-monitor/state.json (0750 root:threats-monitor),
+# MONITOR_LOCK_PATH=/run/threats-monitor/monitor.lock (0750, tmpfs, boot'ta temizlenir).
+Environment=MONITOR_STATE_PATH=/var/lib/threats-monitor/state.json
+Environment=MONITOR_LOCK_PATH=/run/threats-monitor/monitor.lock
+# Ingestion esikleri (dakika, pozitif int, warning<critical)
+Environment=MONITOR_INGESTION_WARNING_MINUTES=480
+Environment=MONITOR_INGESTION_CRITICAL_MINUTES=840
 ExecStart=/usr/bin/env node /home/ubuntu/threats/scripts/production-monitor.mjs
 WorkingDirectory=/home/ubuntu/threats
 ReadOnlyPaths=/home/ubuntu/threats
+# ProtectSystem=strict ile yazilabilir tek yerler:
+ReadWritePaths=/var/lib/threats-monitor /run/threats-monitor
 ProtectSystem=strict
 NoNewPrivileges=true
 PrivateTmp=true

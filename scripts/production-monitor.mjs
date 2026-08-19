@@ -30,9 +30,19 @@ import {
 // ---------------- config ----------------
 const ENV = process.env.MONITOR_ENV || 'production';
 const BASE = (process.env.MONITOR_BASE_URL || 'https://threats.0rce.com').replace(/\/$/, '');
+// State/lock path semantiği:
+//   1. MONITOR_STATE_PATH env varsa onu kullanır (production systemd override).
+//   2. MONITOR_LOCK_PATH env varsa onu kullanır (production systemd override; yoksa state path'ten türetilir).
+//   3. --dry-run flag'i → local .runtime/ (test/gelistirme).
+//   4. Default → local .runtime/ (local 'monitor:check' ek hazirlik olmadan calissin).
+// Production deployment: systemd unit 'Environment=MONITOR_STATE_PATH=/var/lib/threats-monitor/state.json'
+// ve 'Environment=MONITOR_LOCK_PATH=/run/threats-monitor/monitor.lock' set eder.
+const LOCAL_STATE = './.runtime/threats-monitor-state.json';
+const LOCAL_LOCK  = './.runtime/threats-monitor.lock';
 const STATE_PATH = process.env.MONITOR_STATE_PATH ||
-  (process.argv.includes('--dry-run') ? './.runtime/threats-monitor-state.json' : '/var/lib/threats-monitor/state.json');
-const LOCK_PATH = STATE_PATH.replace(/state\.json$/, 'state.lock');
+  (process.argv.includes('--dry-run') ? LOCAL_STATE : LOCAL_STATE);
+const LOCK_PATH = process.env.MONITOR_LOCK_PATH ||
+  STATE_PATH.replace(/state\.json$/, 'lock').replace(/state\.lock$/, 'lock');
 const WARNING_THRESHOLD = Number(process.env.MONITOR_WARNING_THRESHOLD || 2);
 const CRITICAL_THRESHOLD = Number(process.env.MONITOR_CRITICAL_THRESHOLD || 2);
 const COOLDOWN_SECONDS = Number(process.env.MONITOR_COOLDOWN_SECONDS || 1800);
@@ -306,6 +316,17 @@ async function main() {
   }
 
   loadState();
+  // dry-run: state/lock dosyasi yazma, sadece kontrol logla
+  if (DRY_RUN) {
+    log('info', 'monitor', 'lock', 'dry-run: lock dosyasi yazilmayacak');
+    await checkCriticalLight();
+    await checkWarning();
+    console.log('\n[dry-run] STATE şu an yazılmadı (dry-run). Dry-run çıktısı tamam.');
+    console.log('[dry-run] State path:', STATE_PATH);
+    console.log('[dry-run] Lock path:', LOCK_PATH);
+    log('info', 'monitor', 'done', 'monitor tamam');
+    process.exit(0);
+  }
   const lk = acquireLock(LOCK_PATH);
   if (!lk.ok) {
     log('warn', 'monitor', 'lock', `başka bir monitor çalışıyor (${lk.reason||'busy'}) — çıkılıyor`);
@@ -317,12 +338,7 @@ async function main() {
     await checkWarning();
 
     // baseline: ilk koşuda eğer hiç veri yoksa alarm üretme (dramatic-change)
-    if (DRY_RUN) {
-      console.log('\n[dry-run] STATE şu an yazılmadı (dry-run). Dry-run çıktısı tamam.');
-      console.log('[dry-run] State path:', STATE_PATH);
-    } else {
-      atomicWriteState(STATE_PATH, state);
-    }
+    atomicWriteState(STATE_PATH, state);
   } finally {
     releaseLock(LOCK_PATH, lk.fd);
   }

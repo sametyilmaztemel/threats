@@ -169,3 +169,81 @@ export function releaseLock(lockPath, fd) {
   try { if (fd != null) fd.closeSync(); } catch {}
   try { _ul(lockPath); } catch {}
 }
+
+
+// ---- HTTP retry (read-only GET; max 3 attempt, exp backoff + jitter) ----
+// Retry YALNIZ: network exception (TypeError fetch hatası), AbortError (timeout),
+// 408 Request Timeout, 425 Too Early, 429 Too Many Requests, 5xx.
+// 4xx (200, 302, 304, 4xx-other) → retry YAPMA; CSP/data/SEO assertion failure
+// upstream'de kontrol edilir (HTTP 200 + assertion FAIL = production problem).
+// Production kalici problemi maskeleme yok: son deneme basarisizsa caller fail eder.
+const RETRY_STATUS = new Set([408, 425, 429]);
+const MAX_HTTP_ATTEMPTS = 3;
+const BASE_BACKOFF_MS = 200; // 200ms, 400ms, 800ms
+export async function httpRetry(url, opts = {}) {
+  const max = Math.max(1, Math.min(MAX_HTTP_ATTEMPTS, Number(opts.maxAttempts) || MAX_HTTP_ATTEMPTS));
+  const baseBackoff = Number(opts.baseBackoffMs ?? BASE_BACKOFF_MS);
+  const fetchImpl = opts.fetchImpl || fetch;
+  const onAttempt = typeof opts.onAttempt === 'function' ? opts.onAttempt : () => {};
+  let lastErr = null;
+  for (let attempt = 1; attempt <= max; attempt++) {
+    let res, error;
+    try {
+      res = await fetchImpl(url, opts.fetchOpts || {});
+    } catch (e) {
+      error = e;
+    }
+    onAttempt({ attempt, max, url, status: res && res.status, error: error && error.message });
+    if (!error && (!res || (res.status >= 200 && res.status < 400))) {
+      return res;
+    }
+    lastErr = error || (res ? new Error('http ' + res.status) : new Error('no response'));
+    const status = res && res.status;
+    const retryable = error || (status && (RETRY_STATUS.has(status) || status >= 500));
+    if (!retryable || attempt >= max) {
+      // Son deneme veya retryable degil:
+      //  - 5xx (retryable tükendi) → throw (caller fail)
+      //  - 4xx (retryable degil)    → res döndür (caller validation yapar)
+      //  - network error            → throw
+      if (error) throw lastErr;
+      if (res && status >= 400 && status < 500) return res;
+      throw lastErr;
+    }
+    // exponential backoff + jitter (0..baseBackoff/2)
+    const delay = baseBackoff * Math.pow(2, attempt - 1) + Math.floor(Math.random() * baseBackoff / 2);
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  // son deneme basarisiz
+  if (lastErr) throw lastErr;
+  throw new Error('http-retry exhausted');
+}
+
+// ---- webhook emit (HTTP POST; timeout + non-2xx retry) ----
+// Webhook: POST + JSON body. 5xx, 408, 425, 429 retry (max 2 deneme, 500ms backoff).
+// 4xx (clien error, webhook URL yanlis) retry yok — log ve devam et.
+// Timeout 10s.
+const WEBHOOK_MAX = 2;
+export async function emitWebhook(url, payload, opts = {}) {
+  const timeoutMs = Number(opts.timeoutMs ?? 10_000);
+  const fetchImpl = opts.fetchImpl || fetch;
+  const onAttempt = typeof opts.onAttempt === 'function' ? opts.onAttempt : () => {};
+  let lastErr = null;
+  for (let attempt = 1; attempt <= WEBHOOK_MAX; attempt++) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    let res, error;
+    try {
+      res = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: ctrl.signal });
+    } catch (e) {
+      error = e;
+    } finally { clearTimeout(t); }
+    onAttempt({ attempt, url, status: res && res.status, error: error && error.message });
+    if (!error && res && res.status >= 200 && res.status < 300) return { ok: true, status: res.status, attempts: attempt };
+    lastErr = error || new Error('webhook non-2xx: ' + (res && res.status));
+    const status = res && res.status;
+    const retryable = error || (status && (RETRY_STATUS.has(status) || status >= 500));
+    if (!retryable || attempt >= WEBHOOK_MAX) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return { ok: false, error: lastErr && lastErr.message };
+}
