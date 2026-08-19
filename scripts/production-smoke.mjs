@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
   extractDocCount, parseSourceHealth, cspNonce, scriptNonces,
-  sitemapLocs, parseServerTiming,
+  sitemapLocs, parseServerTiming, parseLiveFeed, verifyLiveFeed,
 } from './lib/parsers.mjs';
 
 const BASE = (process.env.BASE_URL || 'https://threats.0rce.com').replace(/\/$/, '');
@@ -191,7 +191,17 @@ async function testDataRegression() {
   for (const bad of ['FortiBleed', 'Kubota', 'ChocoPoC', 'Argo CD', '2026-07-01']) {
     report(`Home: ${bad} YOK`, !home.body.includes(bad));
   }
-  report('Home: güncel kayıt (doc 112076 ya da yeni)', /\/document\/11207[6789]|11208[0-9]|112076/.test(home.body), home.body.match(/\/document\/11\d{4}/)?.[0] || '');
+  // Live Feed semantic: tüm /document/<id> + SIGNAL tarihi + azalan sıra + MAX_LIVE_FEED_AGE_HOURS.
+  // Sabit ID aralığı YOK (her ingestion artışında bozulur); id yalnız pozitif int doğrulanır.
+  const MAX_LIVE_FEED_AGE_HOURS = Number(process.env.MAX_LIVE_FEED_AGE_HOURS || 48);
+  const lf = parseLiveFeed(home.body);
+  const lv = verifyLiveFeed(lf, { maxAgeHours: MAX_LIVE_FEED_AGE_HOURS });
+  report('Live Feed: doc id > 0 unique', lf.docIds.length > 0, `n=${lf.docIds.length} ilk=${lf.docIds[0]||'?'}`);
+  report('Live Feed: tüm id pozitif int', lf.docIds.every((s) => /^[1-9]\d*$/.test(s)));
+  report('Live Feed: SIGNAL ACTIVE ISO tarih parse', lf.signalTimestamp instanceof Date, lf.signalTimestamp?.toISOString() || 'yok');
+  const future = lf.signalTimestamp && lf.signalTimestamp.getTime() > Date.now();
+  report('Live Feed: gelecek tarih YOK', !future);
+  report('Live Feed: azalan sıra + maxAgeHours içinde', lv.ok, lv.errors[0] || `${MAX_LIVE_FEED_AGE_HOURS}h sınır`);
   // Earth Lusca doc count = 1
   const lusca = await get(BASE + '/actor/Earth%20Lusca', BROWSER_HEADERS);
   const luscaCount = extractDocCount(lusca.body);

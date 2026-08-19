@@ -31,7 +31,23 @@ const LOCK_PATH = STATE_PATH.replace(/state\.json$/, 'state.lock');
 const WARNING_THRESHOLD = Number(process.env.MONITOR_WARNING_THRESHOLD || 2);
 const CRITICAL_THRESHOLD = Number(process.env.MONITOR_CRITICAL_THRESHOLD || 2);
 const COOLDOWN_SECONDS = Number(process.env.MONITOR_COOLDOWN_SECONDS || 1800);
-const INGEST_STALE_MIN = Number(process.env.MONITOR_INGESTION_STALE_MINUTES || 24 * 60);
+// Ingestion staleness: dakika cinsinden (collector ~360dk'da/6s bir tur).
+// 0..INGESTION_WARNING_MIN: ok, WARNING..CRITICAL: degraded, CRITICAL+: critical.
+function parsePosIntMin(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null || raw === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+    throw new Error(`[monitor] ${name} geçersiz: ${raw} (pozitif int dakika bekleniyor)`);
+  }
+  return n;
+}
+const INGESTION_WARNING_MIN = parsePosIntMin('MONITOR_INGESTION_WARNING_MINUTES', 480); // 8s
+const INGESTION_CRITICAL_MIN = parsePosIntMin('MONITOR_INGESTION_CRITICAL_MINUTES', 840); // 14s
+if (!(INGESTION_WARNING_MIN < INGESTION_CRITICAL_MIN)) {
+  throw new Error(`[monitor] warning (${INGESTION_WARNING_MIN}) < critical (${INGESTION_CRITICAL_MIN}) şartı ihlal edildi`);
+}
+const INGEST_CRITICAL_AS_DOWN = process.env.INGEST_CRITICAL_AS_DOWN === '1';
 const ALERT_WEBHOOK = process.env.ALERT_WEBHOOK_URL || '';
 const ALERT_TYPE = process.env.ALERT_WEBHOOK_TYPE || 'generic'; // generic|slack|telegram
 const ORIGIN_GUARD_URL = process.env.ORIGIN_GUARD_CHECK_URL || 'https://origin-threats.0rce.com/';
@@ -241,21 +257,36 @@ function headerGetRaw(headers, name) {
 // ---------------- kontrol grupları ----------------
 async function checkWarning() {
   const t0 = Date.now();
-  // ingestion stale: /api/health/ready checks.ingestion
+  // ingestion: /api/health/ready checks.ingestion + status
+  // warning_min/critical_min dakika cinsinden (runbook'ta ürün kararı + eşikler).
   const ready = await httpGet(BASE + '/api/health/ready');
-  let ingStale = false, srcActive = null, srcHealthy = null;
+  let ingState = null;   // 'ok' | 'warning' | 'critical' | 'invalid' | 'down'
+  let readyStatus = null; // 'ok' | 'degraded' | 'critical' | 'down' | 'unknown'
+  let srcActive = null, srcHealthy = null;
   if (ready.status === 200 || ready.status === 503) {
     try {
       const j = JSON.parse(ready.body);
+      readyStatus = j.status || 'unknown';
       if (j.checks) {
-        ingStale = j.checks.ingestion === 'stale';
+        ingState = j.checks.ingestion || null;
         const sm = j.checks.sources && j.checks.sources.match(/^(\d+)\/(\d+)/);
         if (sm) { srcActive = Number(sm[1]); srcHealthy = Number(sm[2]); }
       }
     } catch {}
   }
-  decideAlarm('ingestion_stale', '/api/health/ready', 'warning', !ingStale);
-  log(ingStale ? 'warn' : 'info', 'ingestion_stale', ingStale ? 'fail' : 'pass', ingStale ? 'stale' : 'ok');
+  // ingestion: ok=no alarm, warning/critical=alarm, invalid/degraded=güvenli degraded
+  const ingOk = ingState === 'ok' || ingState === null; // null/unknown -> önceki baseline; gürültü yapma
+  if (ingState === 'critical') {
+    decideAlarm('ingestion_stale', '/api/health/ready', 'critical', false);
+    log('error', 'ingestion_stale', 'fail', `critical (>=${INGESTION_CRITICAL_MIN}dk / ${(INGESTION_CRITICAL_MIN/60).toFixed(1)}h) ready_status=${readyStatus}`);
+  } else if (ingState === 'warning' || ingState === 'invalid') {
+    decideAlarm('ingestion_stale', '/api/health/ready', 'warning', false);
+    const min = ingState === 'invalid' ? 'invalid timestamp' : `>=${INGESTION_WARNING_MIN}dk / ${(INGESTION_WARNING_MIN/60).toFixed(1)}h`;
+    log('warn', 'ingestion_stale', 'fail', `warning (${min}) ready_status=${readyStatus}`);
+  } else {
+    decideAlarm('ingestion_stale', '/api/health/ready', 'warning', ingOk);
+    log(ingOk ? 'info' : 'warn', 'ingestion_stale', ingOk ? 'pass' : 'fail', `ok state=${ingState} ready_status=${readyStatus}`);
+  }
   if (srcActive != null && srcHealthy != null) {
     decideAlarm('sources_mismatch', 'sources', 'warning', srcHealthy === srcActive);
     log(srcHealthy === srcActive ? 'info' : 'warn', 'sources_mismatch', 'pass/fail', `${srcActive}/${srcHealthy}`);

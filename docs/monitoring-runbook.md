@@ -100,6 +100,31 @@ sudo rm -f /var/lib/threats-monitor/state.json /var/lib/threats-monitor/state.lo
 Alarm sonrası düzelme: `checks.ingestion` ok, `home_http` 200, `csp_nonce` pass → monitor bir kez
 RECOVERY bildirir. `node scripts/production-monitor.mjs --dry-run` ile doğrula.
 
+## Ingestion staleness eşikleri (dakika)
+
+Collector ~360 dakikada/6 saatte bir tur atar. Eşikler collector gerçek çalışma süresine göre güvenli toleransla seçildi:
+
+- `INGESTION_WARNING_MINUTES=480` (8 saat = 1.33 tur) — degraded/warning
+- `INGESTION_CRITICAL_MINUTES=840` (14 saat = 2.33 tur) — critical
+
+Bu eşikler 1 turu tolere eder (warning), 2 tam tur kaçırıldığında critical olur.
+
+Uygulama (`app/src/app/api/health/ready/route.ts`) aynı eşikleri okur; `/api/health/ready` response `status` alanı `ok | degraded | critical | down` döner ve `checks.ingestion` alanı `ok | warning | critical | invalid` döner.
+
+## Readiness semantiği (runbook kararı)
+
+`/api/health/ready` HTTP kodu:
+
+| Koşul | status | HTTP | Neden |
+|---|---|---|---|
+| DB erişilemiyorsa | `down` | 503 | zorunlu bağımlılık, uygulama çalışamaz |
+| Ingestion warning veya source mismatch | `degraded` | 200 | uygulama eski veriyle çalışıyor; gereksiz restart döngüsü yok |
+| Ingestion critical | `critical` | 200 (varsayılan) | ürün kararı: eski veri kabul edilemez değilse `INGEST_CRITICAL_AS_DOWN=1` env ile 503 |
+| Ingestion invalid timestamp | `degraded` | 200 | DB parse hatası; güvenli degraded, down değil |
+| Hepsi ok | `ok` | 200 | normal |
+
+**Karar:** default 200/degraded (collector bir-iki tur kaçırsa restart etmeyiz). `INGEST_CRITICAL_AS_DOWN=1` set edilirse 14 saatten eski ingestion'da 503 (load balancer uygulamayı devre dışı bırakır). Üretimde varsayılan 200 tercih edilir.
+
 ## Monitor tamamen çökerse manuel kontrol
 
 ```bash

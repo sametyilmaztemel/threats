@@ -6,7 +6,10 @@
   "scripts": {
     "smoke:production": "node scripts/production-smoke.mjs",
     "audit:production": "node scripts/production-smoke.mjs --audit",
-    "test:parser": "node --test test/production-smoke.test.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:smoke": "node --test test/production-smoke.test.mjs",
+    "test:monitor": "node --test test/production-monitor.test.mjs",
+    "test:health": "node --test test/health.test.mjs",
     "monitor:check": "node scripts/production-monitor.mjs",
     "monitor:dry-run": "node scripts/production-monitor.mjs --dry-run",
     "monitor:test": "node --test test/production-monitor.test.mjs"
