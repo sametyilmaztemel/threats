@@ -9,7 +9,7 @@ tekrar spam üretmeden alarm göndersin, düzelince recovery bildirimi üretsin.
 | Severity | Örnekler | Eşik (ardışık) | Cooldown |
 |---|---|---|---|
 | **critical** | ana sayfa 200 değil, health/live/ready 503/404 değil, CSP nonce yok, unsafe-inline geri döndü, header/body nonce uyuşmuyor, origin guard 200 vermiş, 5xx, github IOC geri geldi | 2 | 30 dk |
-| **warning** | ingestion stale (>24s), active != healthy, worker feed cache HIT değil, HIT cfWorker >250ms, MISS total >8s, AI/IOC sıçrama-düşüş, sitemap shard ulaşılmıyor, canonical/OG kayboldu | 2 | 30 dk |
+| **warning** | ingestion stale (>480 dakika / 8 saat), active != healthy, worker feed cache HIT değil, HIT cfWorker >250ms, MISS total >8s, AI/IOC sıçrama-düşüş, sitemap shard ulaşılmıyor, canonical/OG kayboldu | 2 | 30 dk |
 | **info** | recovery (düzelme), BUILD_ID değişimi, kaynak 18/18 veya active==healthy dönüşü | — | — |
 
 İlk gözlem her zaman **baseline** — alarm ÜRETMEZ (geçmiş yokken yanlış alarm atılmaz).
@@ -104,8 +104,8 @@ RECOVERY bildirir. `node scripts/production-monitor.mjs --dry-run` ile doğrula.
 
 Collector ~360 dakikada/6 saatte bir tur atar. Eşikler collector gerçek çalışma süresine göre güvenli toleransla seçildi:
 
-- `INGESTION_WARNING_MINUTES=480` (8 saat = 1.33 tur) — degraded/warning
-- `INGESTION_CRITICAL_MINUTES=840` (14 saat = 2.33 tur) — critical
+- `INGESTION_WARNING_MINUTES=480` (480 dakika / 8 saat = 1.33 tur) — degraded/warning
+- `INGESTION_CRITICAL_MINUTES=840` (840 dakika / 14 saat = 2.33 tur) — critical
 
 Bu eşikler 1 turu tolere eder (warning), 2 tam tur kaçırıldığında critical olur.
 

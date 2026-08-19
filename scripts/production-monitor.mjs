@@ -20,7 +20,12 @@ import {
   cspNonce, scriptNonces, parseSourceHealth,
   parseServerTiming, seoMeta,
 } from './lib/parsers.mjs';
-import { fingerprint as coreFingerprint, decideAlarm as coreDecide, sanitizeState } from './lib/monitor-core.mjs';
+import {
+  fingerprint as coreFingerprint, decideAlarm as coreDecide, sanitizeState,
+  ingestionSeverityFromReady, sourcesFromReady, cacheHitFromServerTiming,
+  cspOkFromHeaders, originGuardOk, redactForLog, formatWebhookPayload,
+  atomicWriteState, acquireLock, releaseLock,
+} from './lib/monitor-core.mjs';
 
 // ---------------- config ----------------
 const ENV = process.env.MONITOR_ENV || 'production';
@@ -103,37 +108,7 @@ function loadState() {
   }
 }
 
-function saveState() {
-  if (DRY_RUN) return; // dry-run asla state yazmaz
-  try {
-    mkdirSync(stateDir(), { recursive: true });
-    const tmp = STATE_PATH + '.tmp.' + randomUUID();
-    writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
-    renameSync(tmp, STATE_PATH); // atomic rename
-  } catch (e) {
-    log('error', 'state', 'fail', 'state yazılamadı: ' + e.message);
-    throw e;
-  }
-}
-
-// Lock: aynı monitor iki kez paralel çalışmasın
-let lockFd = null;
-function acquireLock() {
-  try {
-    mkdirSync(stateDir(), { recursive: true });
-    lockFd = openSync(LOCK_PATH, 'wx'); // 'wx' => varsa EEXIST
-    // stale lock süresi: 15dk sonra kır (önceki process ölmüş olabilir)
-    setTimeout(() => { try { releaseLock(); } catch {} }, 15 * 60 * 1000);
-    return true;
-  } catch (e) {
-    return false; // zaten kilitli
-  }
-}
-function releaseLock() {
-  if (lockFd != null) { try { lockFd.closeSync(); } catch {} lockFd = null; }
-  try { unlinkSync(LOCK_PATH); } catch {}
-}
-
+// Lock: aynı monitor iki kez paralel çalışmasın (core.acquireLock/releaseLock kullanılır)
 // ---------------- fingerprint + alarm kararı (core'a delege) ----------------
 function fingerprint(checkId, target) {
   return coreFingerprint(checkId, ENV, target);
@@ -269,8 +244,8 @@ async function checkWarning() {
       readyStatus = j.status || 'unknown';
       if (j.checks) {
         ingState = j.checks.ingestion || null;
-        const sm = j.checks.sources && j.checks.sources.match(/^(\d+)\/(\d+)/);
-        if (sm) { srcActive = Number(sm[1]); srcHealthy = Number(sm[2]); }
+        const sf = sourcesFromReady(j);
+        if (sf) { srcActive = sf.active; srcHealthy = sf.healthy; }
       }
     } catch {}
   }
@@ -298,7 +273,7 @@ async function checkWarning() {
   const f3 = await httpGet(BASE + '/feed', { 'accept': 'text/html,application/xhtml+xml' });
   const st2 = headerGetRaw(f2.headers, 'server-timing') || '';
   const st3 = headerGetRaw(f3.headers, 'server-timing') || '';
-  const hit = /cache;desc="?HIT/.test(st2) || /cache;desc="?HIT/.test(st3);
+  const hit = cacheHitFromServerTiming(st2) || cacheHitFromServerTiming(st3);
   decideAlarm('worker_cache_hit', '/feed', 'warning', hit);
   log(hit ? 'info' : 'warn', 'worker_cache_hit', hit ? 'pass' : 'fail', hit ? 'HIT' : 'MISS');
   const pst = parseServerTiming(st2 + ',' + st3);
@@ -331,8 +306,9 @@ async function main() {
   }
 
   loadState();
-  if (!acquireLock()) {
-    log('warn', 'monitor', 'lock', 'başka bir monitor çalışıyor — çıkılıyor');
+  const lk = acquireLock(LOCK_PATH);
+  if (!lk.ok) {
+    log('warn', 'monitor', 'lock', `başka bir monitor çalışıyor (${lk.reason||'busy'}) — çıkılıyor`);
     process.exit(0);
   }
   try {
@@ -345,10 +321,10 @@ async function main() {
       console.log('\n[dry-run] STATE şu an yazılmadı (dry-run). Dry-run çıktısı tamam.');
       console.log('[dry-run] State path:', STATE_PATH);
     } else {
-      saveState();
+      atomicWriteState(STATE_PATH, state);
     }
   } finally {
-    releaseLock();
+    releaseLock(LOCK_PATH, lk.fd);
   }
   log('info', 'monitor', 'done', 'monitor tamam');
   process.exit(0);
@@ -370,8 +346,9 @@ async function checkCriticalLight() {
   log(ready.status === 200 ? 'info' : 'error', 'health_ready', ready.status === 200 ? 'pass' : 'fail', `HTTP ${ready.status}`);
 
   const csp = headerGetRaw(home.headers, 'content-security-policy') || '';
-  const n = cspNonce(csp);
-  const cspOk = !!n && !/unsafe-inline|unsafe-eval/.test(csp);
+  const cspR = cspOkFromHeaders(csp);
+  const n = cspR.nonce || null;
+  const cspOk = cspR.ok;
   decideAlarm('csp_nonce', '/', 'critical', cspOk);
   log(cspOk ? 'info' : 'error', 'csp_nonce', cspOk ? 'pass' : 'fail', `nonce=${!!n} unsafe=${/unsafe-inline|unsafe-eval/.test(csp)}`);
 
@@ -381,7 +358,7 @@ async function checkCriticalLight() {
   log(matched ? 'info' : 'error', 'nonce_match', matched ? 'pass' : 'fail', `scripts=${sns.length} match=${matched}`);
 
   const og = await httpGet(ORIGIN_GUARD_URL, { 'accept': '*/*' });
-  const ogOk = og.status === 403 || og.status === 404;
+  const ogOk = originGuardOk(og.status);
   decideAlarm('origin_guard', ORIGIN_GUARD_URL, 'critical', ogOk);
   log(ogOk ? 'info' : 'error', 'origin_guard', ogOk ? 'pass' : 'fail', `HTTP ${og.status}`);
 

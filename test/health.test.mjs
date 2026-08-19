@@ -145,3 +145,32 @@ test('readEshikler: pozitif int değilse -> throw', () => {
   assert.throws(() => readEshikler({ INGESTION_WARNING_MINUTES: '-1' }), /pozitif int/);
   assert.throws(() => readEshikler({ INGESTION_WARNING_MINUTES: 'abc' }), /pozitif int/);
 });
+
+
+// Parity: scripts/lib/health.mjs vs app/src/lib/health.mjs aynı sonucu vermeli.
+// Kısa kopya (Next alias) aynı mantığı paylaşmalı; sapma = bug.
+import * as scriptsHealth from '../scripts/lib/health.mjs';
+import * as appHealth from '../app/src/lib/health.mjs';
+// appHealth modülü .mjs uzantılı ESM; scriptsHealth ile aynı export isimleri beklenir.
+
+const inputs = [
+  { name: 'fresh', args: { dbOk: true, lastIngestionMs: Date.now() - 3_600_000, sources: { active: 18, healthy: 18 }, eshikler: scriptsHealth.readEshikler({}) } },
+  { name: 'warning', args: { dbOk: true, lastIngestionMs: Date.now() - 500 * 60_000, sources: { active: 18, healthy: 18 }, eshikler: scriptsHealth.readEshikler({}) } },
+  { name: 'critical', args: { dbOk: true, lastIngestionMs: Date.now() - 900 * 60_000, sources: { active: 18, healthy: 18 }, eshikler: scriptsHealth.readEshikler({}) } },
+  { name: 'db_down', args: { dbOk: false, lastIngestionMs: null, sources: null, eshikler: scriptsHealth.readEshikler({}) } },
+  { name: 'source_mismatch', args: { dbOk: true, lastIngestionMs: Date.now() - 60_000, sources: { active: 18, healthy: 16 }, eshikler: scriptsHealth.readEshikler({}) } },
+  { name: 'invalid_timestamp', args: { dbOk: true, lastIngestionMs: Number.NaN, sources: { active: 18, healthy: 18 }, eshikler: scriptsHealth.readEshikler({}) } },
+  { name: 'critical_as_down', args: { dbOk: true, lastIngestionMs: Date.now() - 900 * 60_000, sources: { active: 18, healthy: 18 }, eshikler: scriptsHealth.readEshikler({ INGEST_CRITICAL_AS_DOWN: '1' }) } },
+  { name: 'invalid_threshold', args: { dbOk: true, lastIngestionMs: Date.now() - 60_000, sources: { active: 18, healthy: 18 }, eshikler: { warningMin: 999, criticalMin: 100 } } },
+];
+
+for (const tc of inputs) {
+  test(`health parity: ${tc.name}`, () => {
+    const a = scriptsHealth.computeReadiness(tc.args);
+    const b = appHealth.computeReadiness(tc.args);
+    assert.equal(a.status, b.status, `status mismatch: ${a.status} vs ${b.status}`);
+    assert.equal(a.http, b.http, `http mismatch`);
+    assert.equal(a.ingestionState, b.ingestionState, `ingestionState mismatch`);
+    assert.deepEqual(a.checks, b.checks, `checks mismatch`);
+  });
+}

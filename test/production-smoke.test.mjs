@@ -285,3 +285,34 @@ test('parseLiveFeed: aynı günlü birden fazla kayıt', () => {
   const tsList = p.feedItems.map((f) => f.approxTs.getTime());
   for (let i = 1; i < tsList.length; i++) assert.ok(tsList[i - 1] >= tsList[i]);
 });
+
+
+// 10. SIGNAL ACTIVE güncel + feed tarihi eski -> FAIL (sabit doc ID yok, timestamp parser)
+// Sinyal "bu an" kabul edildi; doc en az 1 tanesi MAX_LIVE_FEED_AGE_HOURS'tan eski.
+// Beklenen: v.ok=false (en yeni doc stale)
+test('parseLiveFeed: SIGNAL güncel + feed eski -> FAIL', () => {
+  // 72 saat eski feed, signal bugün
+  const signal = new Date().toISOString().slice(0, 19).replace('T', ' ') + '<!-- -->Z';
+  // benzersiz ID'ler (sabit prefix yok)
+  const id1 = String(Math.floor(Math.random() * 9000) + 1000);
+  const id2 = String(Number(id1) + 1);
+  const id3 = String(Number(id1) + 2);
+  const html = [
+    '<html><body>',
+    `<span>SIGNAL ACTIVE | ${signal}</span>`,
+    `<a href="/document/${id1}">a</a><span>72h ago</span>`,
+    `<a href="/document/${id2}">b</a><span>73h ago</span>`,
+    `<a href="/document/${id3}">c</a><span>74h ago</span>`,
+    '</body></html>',
+  ].join('');
+  const p = parseLiveFeed(html);
+  assert.ok(p.docIds.length >= 3, `docIds: ${p.docIds.length}`);
+  // üçü de pozitif int (sabit prefix yok)
+  for (const id of p.docIds) assert.match(id, /^[1-9]\d*$/);
+  // signal parse edildi
+  assert.ok(p.signalTimestamp instanceof Date);
+  // en yeni doc 72h eski -> 48h sınırı aşıldı -> FAIL
+  const v = verifyLiveFeed(p, { maxAgeHours: 48 });
+  assert.equal(v.ok, false);
+  assert.ok(v.errors.some((e) => e.includes('en yeni doc')), 'en yeni doc hatası beklenir');
+});

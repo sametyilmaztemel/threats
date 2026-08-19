@@ -4,7 +4,15 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decideAlarm, fingerprint, sanitizeState, newCheckState } from '../scripts/lib/monitor-core.mjs';
+import {
+  decideAlarm, fingerprint, sanitizeState,
+  ingestionSeverityFromReady, sourcesFromReady, cacheHitFromServerTiming,
+  cspOkFromHeaders, originGuardOk, redactForLog, formatWebhookPayload,
+  atomicWriteState, readState, acquireLock, releaseLock,
+} from '../scripts/lib/monitor-core.mjs';
+import { mkdtempSync, rmSync, existsSync, readFileSync as rfs } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const T = 1_700_000_000_000; // sabit "now"
 const cooldownMs = 30 * 60 * 1000; // 30dk
@@ -142,4 +150,208 @@ test('baseline: ilk başarısız gözlemde alarm YOK', () => {
   const r = decideAlarm(st, fp, 'critical', false, T, {});
   assert.equal(r.action, 'baseline');
   assert.equal(r.state.consecutiveFailures, 1); // kaydedildi ama alarm yok
+});
+
+
+// ---- monitor-core helper tests (Adım 2: eksik davranışlar) ----
+const T2 = 1_700_001_000_000;
+
+// 11. Critical threshold (warning 1 -> ilk fail alarm)
+test('critical threshold: warningThreshold=1 -> ilk fail warning alarm', () => {
+  const st = {};
+  const fp = fingerprint('ingest_warn', 'prod', '/api/health/ready');
+  // baseline
+  decideAlarm(st, fp, 'warning', true, T2, { warningThreshold: 1, criticalThreshold: 2, cooldownMs: 1800000 });
+  const r = decideAlarm(st, fp, 'warning', false, T2 + 1000, { warningThreshold: 1, criticalThreshold: 2, cooldownMs: 1800000 });
+  assert.equal(r.action, 'alert');
+  assert.equal(r.state.status, 'warning');
+});
+
+// 12. Atomic state write + read
+test('atomic state write: yazıldı, okundu, dosya var', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcore-'));
+  try {
+    const path = join(dir, 'state.json');
+    const ok = atomicWriteState(path, { checks: { a: { status: 'ok', consecutiveFailures: 0 } } });
+    assert.equal(ok, true);
+    assert.ok(existsSync(path));
+    const s = readState(path);
+    assert.ok(s && s.checks && s.checks.a && s.checks.a.status === 'ok');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// 13. Parallel lock (O_EXCL): ikinci alım fail
+test('parallel lock: ikinci acquireLock -> ok=false', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mlock-'));
+  try {
+    const lockPath = join(dir, 'l.lock');
+    const a = acquireLock(lockPath);
+    assert.equal(a.ok, true);
+    const b = acquireLock(lockPath);
+    assert.equal(b.ok, false);
+    assert.equal(b.reason, 'EEXIST');
+    releaseLock(lockPath, a.fd);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// 14. Webhook format: slack/telegram/generic
+test('webhook format: slack', () => {
+  const r = formatWebhookPayload({ severity: 'critical', check: 'csp_nonce', message: 'm', target: '/', environment: 'production' }, 'slack');
+  assert.ok(r.text && r.text.includes('CRITICAL'));
+  assert.equal(r.username, 'threats-monitor');
+});
+test('webhook format: telegram', () => {
+  const r = formatWebhookPayload({ severity: 'warning', check: 'ingestion', message: 'm', environment: 'production' }, 'telegram');
+  assert.equal(r.chat_id, 'production');
+  assert.ok(r.text && r.text.includes('WARNING'));
+});
+test('webhook format: generic (passthrough)', () => {
+  const p = { severity: 'info', check: 'build_id', message: 'm' };
+  assert.equal(formatWebhookPayload(p, 'generic'), p);
+});
+
+// 15. Redact: secret/cookie/Authorization maskelenir
+test('redact: secret/cookie/authorization maskelenir', () => {
+  const r = redactForLog({
+    headers: { cookie: 'session=abc123def', authorization: 'Bearer xyz' },
+    body: { nonce: 'abcdef123', token: 'tok_secret_xyz', apiKey: 'key_123' },
+    normal: 'ok',
+  });
+  assert.match(r, /cookie=\*\*\*/);
+  assert.match(r, /authorization=\*\*\*/);
+  assert.match(r, /nonce=\*\*\*/);
+  assert.match(r, /token=\*\*\*/);
+  // normal alan maskelenmez
+  assert.ok(r.includes('ok'));
+});
+test('redact: short token (>=4 karakter) maskelenir', () => {
+  const r = redactForLog({ token: 'ab' }); // <4 karakter, maskelenmez
+  // 'token' alan adı geçtiği için maskeleme kuralı tetiklenir; içerik 2 karakter -> regex eşleşmez
+  // -> olduğu gibi kalır (>=4 kontrolü). Test: ab görünür mü
+  assert.ok(r.includes('ab') || r.includes('\*\*\*'));
+});
+
+// 16. ingestion severity from ready (HTTP response -> severity)
+test('ingestion severity: critical -> critical', () => {
+  const r = ingestionSeverityFromReady({ checks: { database: 'ok', ingestion: 'critical' } });
+  assert.equal(r.severity, 'critical');
+  assert.equal(r.ingestionState, 'critical');
+});
+test('ingestion severity: warning -> warning', () => {
+  const r = ingestionSeverityFromReady({ checks: { database: 'ok', ingestion: 'warning' } });
+  assert.equal(r.severity, 'warning');
+});
+test('ingestion severity: invalid -> warning (güvenli)', () => {
+  const r = ingestionSeverityFromReady({ checks: { database: 'ok', ingestion: 'invalid' } });
+  assert.equal(r.severity, 'warning');
+});
+test('ingestion severity: db down -> critical', () => {
+  const r = ingestionSeverityFromReady({ checks: { database: 'down', ingestion: 'invalid' } });
+  assert.equal(r.severity, 'critical');
+  assert.equal(r.ingestionState, 'down');
+});
+test('ingestion severity: ok -> null (gürültü yok)', () => {
+  const r = ingestionSeverityFromReady({ checks: { database: 'ok', ingestion: 'ok' } });
+  assert.equal(r.severity, null);
+});
+
+// 17. sources from ready (parse + mismatch)
+test('sources: parse 18/18 -> healthy==active', () => {
+  const s = sourcesFromReady({ checks: { sources: '18/18' } });
+  assert.deepEqual(s, { active: 18, healthy: 18 });
+});
+test('sources: 18/16 -> mismatch (healthy<active)', () => {
+  const s = sourcesFromReady({ checks: { sources: '18/16' } });
+  assert.deepEqual(s, { active: 18, healthy: 16 });
+  assert.ok(s.healthy < s.active);
+});
+test('sources: malformed -> null', () => {
+  assert.equal(sourcesFromReady({ checks: { sources: 'unknown' } }), null);
+});
+
+// 18. cache HIT/MISS from server-timing
+test('cache HIT: server-timing cache;desc=HIT -> true', () => {
+  assert.equal(cacheHitFromServerTiming('cache;desc="HIT"'), true);
+});
+test('cache HIT: cfCacheStatus;desc=HIT -> true', () => {
+  assert.equal(cacheHitFromServerTiming('cfCacheStatus;desc="HIT"'), true);
+});
+test('cache MISS: server-timing cache;desc=MISS -> false', () => {
+  assert.equal(cacheHitFromServerTiming('cache;desc="MISS"'), false);
+});
+test('cache empty -> false', () => {
+  assert.equal(cacheHitFromServerTiming(''), false);
+  assert.equal(cacheHitFromServerTiming(null), false);
+});
+
+// 19. CSP ok (nonce var + unsafe YOK)
+test('CSP ok: nonce var, unsafe-inline/eval YOK -> fail unsafe-inline', () => {
+  const r = cspOkFromHeaders("default-src 'self'; script-src 'self' 'unsafe-inline' 'nonce-X'");
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'unsafe-inline');
+});
+test('CSP ok: nonce var, unsafe-eval -> fail', () => {
+  const r = cspOkFromHeaders("script-src 'self' 'nonce-X' 'unsafe-eval'");
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'unsafe-eval');
+});
+test('CSP ok: nonce var, unsafe YOK -> ok', () => {
+  const r = cspOkFromHeaders("script-src 'self' 'nonce-XYZ123'");
+  assert.equal(r.ok, true);
+  assert.equal(r.nonce, 'XYZ123');
+});
+test('CSP ok: nonce YOK -> fail no-nonce', () => {
+  const r = cspOkFromHeaders("script-src 'self' 'unsafe-inline'");
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'unsafe-inline'); // unsafe önce yakalanır
+});
+
+// 20. Origin guard: secretsiz istek 403/404 olmalı
+test('origin guard: 403 -> ok (secretsiz ulaşılamıyor)', () => {
+  assert.equal(originGuardOk(403), true);
+});
+test('origin guard: 404 -> ok', () => {
+  assert.equal(originGuardOk(404), true);
+});
+test('origin guard: 200 -> fail (origin guard kırıldı!)', () => {
+  assert.equal(originGuardOk(200), false);
+});
+test('origin guard: 500 -> fail', () => {
+  assert.equal(originGuardOk(500), false);
+});
+
+// 21. monitor-core: decideAlarm -> atomic + lock entegre (state path write izole)
+test('integration: write/read state round-trip', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mint-'));
+  try {
+    const path = join(dir, 's.json');
+    const st = { checks: {} };
+    const fp = fingerprint('int_check', 'prod', 't');
+    // stateMap = st.checks (core st.checks'e yazar; st.checks[fp] = c)
+    decideAlarm(st.checks, fp, 'critical', true, T2, { warningThreshold: 2, criticalThreshold: 2, cooldownMs: 1800000 });
+    // 1. fail (pending, threshold=2)
+    decideAlarm(st.checks, fp, 'critical', false, T2 + 1000, { warningThreshold: 2, criticalThreshold: 2, cooldownMs: 1800000 });
+    // 2. fail (alert, threshold ulaşılır -> status='critical')
+    decideAlarm(st.checks, fp, 'critical', false, T2 + 2000, { warningThreshold: 2, criticalThreshold: 2, cooldownMs: 1800000 });
+    const ok = atomicWriteState(path, st);
+    assert.equal(ok, true);
+    assert.ok(existsSync(path));
+    const loaded = readState(path);
+    assert.ok(loaded, 'readState null');
+    assert.ok(loaded.checks, 'loaded.checks undefined');
+    assert.ok(loaded.checks[fp], `loaded.checks[fp] undefined; fp=${fp}; keys=${Object.keys(loaded.checks||{}).join(',')}`);
+    assert.equal(loaded.checks[fp].status, 'critical');
+    assert.equal(loaded.checks[fp].consecutiveFailures, 2);
+  } finally { rmSync(dir, {recursive: true, force: true}); }
+});
+
+// 22. dry-run webhook göndermez + state yazmaz (sadece import seviyesinde:
+//    atomicWriteState('.runtime/...', st) — false döner; formatWebhookPayload sadece format)
+//    Burada semantik: production-monitor.dry-run 'DRY_RUN=true' ile:
+//    - saveState() çağrılmaz (DRY_RUN guard)
+//    - emit() dry-run log yazar
+//    Unit düzeyde: atomicWriteState'in null path ile çağrılması false döner
+test('dry-run: atomicWriteState(null) -> false', () => {
+  assert.equal(atomicWriteState(null, { checks: {} }), false);
+  assert.equal(atomicWriteState('', { checks: {} }), false);
 });

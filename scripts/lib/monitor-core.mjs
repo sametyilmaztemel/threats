@@ -1,3 +1,4 @@
+import { cspNonce } from './parsers.mjs';
 // lib/monitor-core.mjs — SAF alarm state machine (test edilebilir, IO yok).
 // production-monitor.mjs ve test/ birlikte kullanır. HTTP/state-dosya/webhook YOK.
 // Sorumluluk: fingerprint, ardışık sayma, eşik, cooldown, recovery, baseline.
@@ -70,4 +71,101 @@ export function sanitizeState(raw) {
     }
   }
   return { checks };
+}
+
+
+// ---- ingestion state mapping (ready endpoint JSON -> severity) ----
+// readyJson = { status, checks: { database, sources, ingestion } }
+// ingestion string: 'ok' | 'warning' | 'critical' | 'invalid' | 'down'
+export function ingestionSeverityFromReady(readyJson) {
+  if (!readyJson || !readyJson.checks) return { severity: null, ingestionState: 'unknown' };
+  const db = readyJson.checks.database;
+  if (db === 'down') return { severity: 'critical', ingestionState: 'down' };
+  const ing = readyJson.checks.ingestion;
+  if (ing === 'critical') return { severity: 'critical', ingestionState: 'critical' };
+  if (ing === 'warning' || ing === 'invalid') return { severity: 'warning', ingestionState: ing };
+  // ok veya unknown -> baseline gürültüsü
+  return { severity: null, ingestionState: ing || 'unknown' };
+}
+
+// ---- source mismatch ----
+// readyJson.checks.sources: "18/18" veya "18/16 (degraded)"
+export function sourcesFromReady(readyJson) {
+  if (!readyJson || !readyJson.checks || !readyJson.checks.sources) return null;
+  const m = String(readyJson.checks.sources).match(/^(\d+)\/(\d+)/);
+  if (!m) return null;
+  return { active: Number(m[1]), healthy: Number(m[2]) };
+}
+
+// ---- cache HIT/MISS from server-timing header ----
+export function cacheHitFromServerTiming(st) {
+  if (!st) return false;
+  return /cache;desc="?HIT/.test(st) || /cfCacheStatus;desc="?HIT/.test(st);
+}
+
+// ---- CSP nonce + unsafe-inline/eval ----
+export function cspOkFromHeaders(cspHeader) {
+  if (!cspHeader) return { ok: false, reason: 'no-csp' };
+  if (/unsafe-inline/.test(cspHeader)) return { ok: false, reason: 'unsafe-inline' };
+  if (/unsafe-eval/.test(cspHeader)) return { ok: false, reason: 'unsafe-eval' };
+  const n = cspNonce(cspHeader);
+  if (!n) return { ok: false, reason: 'no-nonce' };
+  return { ok: true, nonce: n };
+}
+
+// ---- origin guard: secretsiz istek 403/404 olmalı ----
+export function originGuardOk(status) {
+  return status === 403 || status === 404;
+}
+
+// ---- secret/cookie/Authorization loglanmaz (redact) ----
+export function redactForLog(o) {
+  const s = JSON.stringify(o);
+  return s.replace(/(token|secret|key|cookie|authorization|nonce)["']?\s*[:=]\s*["']?[A-Za-z0-9_\-\.]{4,}/gi, '$1=***');
+}
+
+// ---- webhook payload format (provider-specific) ----
+export function formatWebhookPayload(p, type) {
+  if (type === 'slack') {
+    return { text: `[${String(p.severity||'').toUpperCase()}] ${p.check}: ${p.message} (${p.target})`, username: 'threats-monitor' };
+  }
+  if (type === 'telegram') {
+    return { chat_id: p.environment, text: `[${String(p.severity||'').toUpperCase()}] ${p.check}: ${p.message}` };
+  }
+  return p; // generic
+}
+
+// ---- atomic state write (tmp + rename) ----
+import { mkdirSync as _mkdirSync, writeFileSync as _wf, renameSync as _rn, openSync as _op, existsSync as _ex, readFileSync as _rf, unlinkSync as _ul } from 'node:fs';
+import { randomUUID as _uuid } from 'node:crypto';
+export function atomicWriteState(path, state) {
+  if (!path) return false; // dry-run guard
+  _mkdirSync(path.replace(/[^/]+$/, ''), { recursive: true });
+  const tmp = path + '.tmp.' + _uuid();
+  _wf(tmp, JSON.stringify(state, null, 2), 'utf8');
+  _rn(tmp, path);
+  return true;
+}
+export function readState(path) {
+  if (!_ex(path)) return null;
+  try {
+    return JSON.parse(_rf(path, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+// ---- parallel lock (O_EXCL) ----
+export function acquireLock(lockPath) {
+  try {
+    _mkdirSync(lockPath.replace(/[^/]+$/, ''), { recursive: true });
+    const fd = _op(lockPath, 'wx');
+    return { ok: true, fd };
+  } catch (e) {
+    return { ok: false, reason: e.code || 'lock-failed' };
+  }
+}
+export function releaseLock(lockPath, fd) {
+  try { if (fd != null) fd.closeSync(); } catch {}
+  try { _ul(lockPath); } catch {}
 }
