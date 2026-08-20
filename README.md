@@ -168,43 +168,293 @@ threats/
 
 ---
 
-## 🧠 The Local Classifier — How It Works / Yerel Sınıflandırıcı — Nasıl Çalışır
+## 🧠 Local AI Architecture / Yerel YZ Mimarisi
 
-The on-device pipeline is the heart of the project. Every document that enters the database flows through four stages, all implemented in TypeScript and running inside `threats-worker`:
+**EN:** The platform's intelligence layer is **fully local, fully deterministic, and reproducible by design**. There is no external API call on the inference path. Every classification, scoring, linking, and summarization decision happens on the same VM that runs PostgreSQL and the Next.js dashboard. The only thing that leaves the host is the Cloudflare Tunnel bytes.
 
-Cihaz üzerindeki hat projenin kalbidir. Veritabanına giren her doküman dört aşamadan geçer; tümü TypeScript ile yazılmış ve `threats-worker` içinde çalışır:
+**TR:** Platformun istihbarat katmanı **tamamen yerel, tamamen belirleyici ve tasarım gereği tekrarlanabilirdir**. Çıkarım yolunda harici API çağrısı yoktur. Her sınıflandırma, puanlama, bağlama ve özetleme kararı, PostgreSQL ve Next.js panosunu çalıştıran aynı VM üzerinde gerçekleşir. Konağı terk eden tek şey Cloudflare Tüneli baytlarıdır.
 
-### 1. IoC Extraction / IoC Çıkarımı — `collector/ioc-classifier.ts`
-**EN:** A pattern-based extractor that pulls IPv4, IPv6, domains, URLs, file hashes (MD5/SHA1/SHA256), email addresses, and CVE IDs from free-text content. False positives are filtered with a confidence threshold and a deny-list of common-bucket strings.
+The architecture has **seven local-AI components**, each implemented as a standalone TypeScript module under `collector/`. They run in sequence during the 6-hour cycle and can also be invoked individually for backfill or testing.
 
-**TR:** Serbest metin içeriklerinden IPv4, IPv6, alan adları, URL'ler, dosya karmaları (MD5/SHA1/SHA256), e-posta adresleri ve CVE kimliklerini çeken kalıp-tabanlı bir çıkarıcı. Yanlış pozitifler, bir güven eşiği ve sık kullanılan genel dizelerden oluşan bir reddetme listesiyle filtrelenir.
+Mimari **yedi yerel YZ bileşeninden** oluşur; her biri `collector/` altında bağımsız bir TypeScript modülü olarak uygulanmıştır. 6 saatlik döngüde sırayla çalışırlar ve backfill veya test için ayrı ayrı da çağrılabilirler.
 
-### 2. Quality Scoring / Kalite Puanlama — `collector/quality-score.ts`
-**EN:** Each `(document, source)` pair gets a score that combines:
-- **Source trust** — pre-assigned tier (1–3) for every registered feed
-- **Freshness** — exponential decay over the document's age
-- **Cross-source corroboration** — bonus when ≥ 2 sources publish the same IoC
-- **MITRE technique specificity** — documents mapped to specific techniques score higher than generic "advisory" tags
+### Component Map / Bileşen Haritası
 
-**TR:** Her `(doküman, kaynak)` çifti, aşağıdaki bileşenleri birleştiren bir puan alır:
-- **Kaynak güveni** — kayıtlı her kaynak için önceden atanmış seviye (1–3)
-- **Tazelik** — dokümanın yaşı üzerinden üstel azalma
-- **Kaynaklar arası teyit** — aynı IoC'yi ≥ 2 kaynak yayınladığında ek puan
-- **MITRE tekniği özgünlüğü** — belirli tekniklere eşlenen dokümanlar, genel "advisory" etiketlerinden daha yüksek puan alır
+```
+   ┌─────────────────────────── 6-hour cron / on-demand ─────────────────────────────┐
+   │                                                                                  │
+   │   ┌──────────────────┐                                                          │
+   │   │ collect-rss.ts   │ 47 RSS feeds, 9 IOC feeds, NVD, CISA, EPSS, OSV, GHSA,  │
+   │   │ collect-ioc.ts   │ arXiv cs.CR/cs.AI, MITRE TAXII  →  raw documents        │
+   │   │ collect-stix.ts  │  (collector.runs collection; pure HTTP, no AI here)     │
+   │   └────────┬─────────┘                                                          │
+   │            │                                                                    │
+   │            ▼                                                                    │
+   │   ┌────────────────────┐                                                        │
+   │   │ ioc-classifier.ts  │ ◀── local AI ①  Evidence-weighted IoC classifier      │
+   │   │ extract-iocs.ts    │ ◀── local AI ②  Pattern extractor (regex + heuristics) │
+   │   └────────┬───────────┘                                                        │
+   │            │                                                                    │
+   │            ▼                                                                    │
+   │   ┌──────────────────────────┐                                                  │
+   │   │ sector-technique-        │ ◀── local AI ③  MITRE ATT&CK + sector keyword  │
+   │   │   cleanup.ts             │     classifier (11 sectors × 13 techniques)     │
+   │   └────────┬─────────────────┘                                                  │
+   │            │                                                                    │
+   │            ▼                                                                    │
+   │   ┌──────────────────┐                                                          │
+   │   │ actor-match.ts   │ ◀── local AI ④  Threat-actor alias resolution          │
+   │   └────────┬─────────┘                                                          │
+   │            │                                                                    │
+   │            ▼                                                                    │
+   │   ┌──────────────────┐                                                          │
+   │   │ build-graph.ts   │ ◀── local AI ⑤  Graph stitching (typed edges)          │
+   │   └────────┬─────────┘                                                          │
+   │            │                                                                    │
+   │            ▼                                                                    │
+   │   ┌──────────────────┐                                                          │
+   │   │ quality-score.ts │ ◀── local AI ⑥  Deterministic 0-100 quality scoring    │
+   │   └────────┬─────────┘                                                          │
+   │            │                                                                    │
+   │            ▼                                                                    │
+   │   ┌──────────────────────┐                                                      │
+   │   │ llm-summary.ts       │ ◀── local AI ⑦ (optional, off by default)          │
+   │   │   deterministic       │     Falls back to deterministic summary if no       │
+   │   │   short-summary.ts    │     LLM endpoint configured                       │
+   │   └────────┬─────────────┘                                                      │
+   │            │                                                                    │
+   │            ▼                                                                    │
+   │        PostgreSQL 16  →  Next.js dashboard  →  Cloudflare edge                 │
+   └──────────────────────────────────────────────────────────────────────────────────┘
+```
 
-### 3. Graph Stitching / Grafik Birleştirme — `collector/build-graph.ts`
-**EN:** IoCs, actors, CVEs, and techniques are linked into a typed graph. The dashboard's `/graph` route renders this graph with vis-network; the SQL view `v_graph` exposes it for external queries.
+### ① IoC Classifier / IoC Sınıflandırıcı — `collector/ioc-classifier.ts`
 
-**TR:** IoC'ler, aktörler, CVE'ler ve teknikler tiplendirilmiş bir grafiğe bağlanır. Pano'nun `/graph` rotası bu grafiği vis-network ile çizer; SQL view `v_graph` harici sorgular için onu dışa açar.
+**EN:** The single most subtle component. It assigns every extracted indicator one of **four severity levels** based on contextual evidence, not pattern match alone:
 
-### 4. Local Summarization / Yerel Özetleme — `collector/llm-summary.ts`
-**EN:** A short, on-host language model produces a 2–3 sentence summary of every document. The model runs on the same VM as the rest of the stack — no outbound call to OpenAI, Azure, or any other provider.
+| Level / Seviye | Confidence / Güven | Meaning / Anlam |
+|----------------|--------------------|------------------|
+| `mentioned` | 0.10 | The value appears in the text but the document is just talking about it (e.g. *"threat actors use github.com for hosting"*). Stored for completeness, **filtered out of all "real" IoC counts**. |
+| `observed` | 0.50 | The value appeared in source content with no supporting signal. Default classification. |
+| `suspicious` | 0.70 | A trustworthy source referenced the value as a candidate. Worth analyst attention. |
+| `confirmed_malicious` | 0.95 | Strong context signal — a feed source tagged it as malicious, **or** the source itself is a known IOC feed (URLhaus, ThreatFox, MalwareBazaar). |
 
-**TR:** Kısa, konak-üzeri bir dil modeli her doküman için 2–3 cümlelik özet üretir. Model, yığındaki diğer bileşenlerle aynı VM üzerinde çalışır — OpenAI, Azure ya da başka bir sağlayıcıya giden çağrı yoktur.
+The classifier maintains a **public-infrastructure deny list** of 30+ domains (`github.com`, `microsoft.com`, `cloudflare.com`, `aws.amazon.com`, ...) that are **never** treated as malicious IoCs no matter what the text says. This single line of policy prevents the recurring bug where blog posts about threat actors mentioning legitimate services would inflate the IOC counts.
 
-The whole pipeline is deterministic, reproducible, and unit-tested (`collector/ioc-classifier.test.ts`, `actor-match.test.ts`).
+**TR:** En ince bileşen. Her çıkarılan göstergeyi, salt kalıp eşleşmesine değil **bağlamsal kanıta** dayanarak **dört önem seviyesinden** birine atar:
 
-Tüm hat belirleyici, tekrarlanabilir ve birim testleriyle desteklenmiştir (`collector/ioc-classifier.test.ts`, `actor-match.test.ts`).
+| Seviye | Güven | Anlam |
+|--------|-------|-------|
+| `mentioned` (anıldı) | 0.10 | Değer metinde geçiyor ancak doküman sadece ondan bahsediyor (örn. *"tehdit aktörleri github.com'u barındırma için kullanıyor"*). Bütünlük için saklanır, **tüm "gerçek" IoC sayımlarından filtrelenir**. |
+| `observed` (gözlemlendi) | 0.50 | Değer destekleyici sinyal olmaksızın kaynak içerikte göründü. Varsayılan sınıflandırma. |
+| `suspicious` (şüpheli) | 0.70 | Güvenilir bir kaynak değeri aday olarak gösterdi. Analist dikkatine değer. |
+| `confirmed_malicious` (doğrulanmış kötü amaçlı) | 0.95 | Güçlü bağlam sinyali — bir besleme kaynağı onu kötü amaçlı olarak etiketledi **veya** kaynağın kendisi bilinen bir IoC beslemesi (URLhaus, ThreatFox, MalwareBazaar). |
+
+Sınıflandırıcı, metin ne derse desin **asla** kötü amaçlı IoC olarak işlem görmeyen 30+ alan adından (`github.com`, `microsoft.com`, `cloudflare.com`, `aws.amazon.com`, ...) oluşan bir **halka açık altyapı reddetme listesi** tutar. Bu tek politika satırı, tehdit aktörlerinden bahseden blog yazılarının meşru hizmetleri anmasının IoC sayılarını şişirmesine yol açan tekrarlayan hatayı engeller.
+
+**Determinism / Belirleyicilik:** The classifier's `classifyIoc()` function is a pure function of `(value, type, context)`. Same input → same output, byte-for-byte, on every run, on every host. This is what makes the dashboard's per-source IoC numbers auditable.
+
+**Birim testi:** `collector/ioc-classifier.test.ts` — 19 test case ile dört seviyenin tamamı ve reddetme listesi kapsanmaktadır.
+
+### ② IoC Pattern Extractor / IoC Kalıp Çıkarıcı — `collector/extract-iocs-from-text.ts`
+
+**EN:** A pure regex-based extractor with **heuristic post-filters** that turn the noisy problem of free-text extraction into a clean one. Patterns covered:
+
+- **IPv4** — strict octet validation, `255.255.255.255` excluded
+- **URL** — `http(s)://...` with terminal punctuation stripped
+- **MD5 / SHA1 / SHA256** — exact-length hex blocks
+- **Domain** — RFC-1035 friendly label regex, max 24-char TLD
+
+The non-trivial part is what comes **after** the regex match:
+
+| Heuristic / Sezgisel | Purpose / Amaç |
+|----------------------|----------------|
+| **Private-IP filter** | Drop `10.0.0.0/8`, `172.16/12`, `192.168/16`, `127/8`, `0/8`, `224/8+` — RFC 5735 / 6890 reserved ranges. A 10.0.0.1 mention in a security post is not an IoC. |
+| **Version-context heuristic** | An IPv4-shaped value that appears within 30 chars of `version`, `build`, `release`, or `kernel` is treated as a software version, not an indicator. The 1.x.x.x software-version false-positive class disappears. |
+| **Common-bucket deny list** | `example.com`, `localhost`, `0.0.0.0`, `255.255.255.255`, `foo.bar.baz`, RFC 2606 reserved. |
+
+**TR:** Serbest metin çıkarımının gürültülü problemini temiz bir problem haline getiren **sezgisel son filtrelerle** donatılmış saf düzenli ifade tabanlı bir çıkarıcı. Kapsanan kalıplar:
+
+- **IPv4** — sıkı oktet doğrulaması, `255.255.255.255` hariç
+- **URL** — `http(s)://...` ile birlikte terminal noktalama temizlenir
+- **MD5 / SHA1 / SHA256** — tam-uzunlukta onaltılık bloklar
+- **Alan adı** — RFC-1035 uyumlu etiket düzenli ifadesi, en fazla 24 karakter TLD
+
+Önemsiz olmayan kısım, düzenli ifade eşleşmesinden **sonra** gelen kısımdır:
+
+| Sezgisel | Amaç |
+|----------|------|
+| **Özel-IP filtresi** | `10.0.0.0/8`, `172.16/12`, `192.168/16`, `127/8`, `0/8`, `224/8+` — RFC 5735 / 6890 ayrılmış aralıkları çıkar. Bir güvenlik yazısındaki 10.0.0.1 anılması IoC değildir. |
+| **Sürüm bağlamı sezgiseli** | `version`, `build`, `release` veya `kernel` anahtar kelimelerinin 30 karakteri içinde görünen IPv4 şeklindeki bir değer, gösterge değil yazılım sürümü olarak işlem görür. 1.x.x.x yazılım-sürümü yanlış-pozitif sınıfı ortadan kalkar. |
+| **Genel kova reddetme listesi** | `example.com`, `localhost`, `0.0.0.0`, `255.255.255.255`, `foo.bar.baz`, RFC 2606 ayrılmış. |
+
+**Why heuristics over a fine-tuned model? / Neden ince-ayarlı model yerine sezgisel?** A fine-tuned NER model would be marginally better at *recall* on novel indicators, but it would be wrong in different, harder-to-debug ways (no per-decision explanation, no deterministic replay, requires GPU). The heuristic pipeline is auditable line-by-line, runs in <50 ms per document, and is reproducible across hosts.
+
+*İnce-ayarlı bir NER modeli yeni göstergeler için *geri çağırmada* marjinal olarak daha iyi olurdu, ancak hata ayıklaması daha zor farklı şekillerde yanlış olurdu (karar başına açıklama yok, belirleyici tekrar oynatma yok, GPU gerektirir). Sezgisel hat satır satır denetlenebilir, doküman başına <50 ms çalışır ve konaklar arasında tekrarlanabilirdir.*
+
+### ③ MITRE ATT&CK + Sector Classifier / MITRE ATT&CK + Sektör Sınıflandırıcı — `collector/sector-technique-cleanup.ts`
+
+**EN:** A **keyword-based local classifier** that maps each document's free text to:
+- **11 sectors** — finance, healthcare, government, technology, education, energy, retail, manufacturing, telecom, transportation, media
+- **13 MITRE ATT&CK techniques** — Exploit Public-Facing Application, Phishing, Data Encrypted for Impact, Spearphishing Attachment, Exploitation for Privilege Escalation, Exploitation for Defense Evasion, Brute Force, Valid Accounts, Remote Service Exploitation, Supply Chain Compromise, Drive-by Compromise, Lateral Movement, Exfiltration Over C2 Channel
+
+The keyword set is hand-curated, not generated. Each entry has 2–7 anchor phrases:
+
+```ts
+// finance sector — anchors
+const SECTOR_KEYWORDS: Record<string, string[]> = {
+  'finance': ['bank', 'banking', 'financial', 'financial loss', 'monetary',
+              'transaction', 'swift', 'atm', 'cryptocurrency', 'wallet',
+              'bitcoin', 'ethereum', 'trading platform'],
+  // ...
+};
+
+// Exploit Public-Facing Application technique — anchors
+const TECHNIQUE_KEYWORDS: Record<string, string[]> = {
+  'Exploit Public-Facing Application':
+    ['public-facing application', 'web application exploit',
+     'exploit public-facing', 'cve-', 'vulnerability in',
+     'authenticated access', 'unauthenticated remote attacker'],
+  // ...
+};
+```
+
+**Why not an embedding-based classifier? / Neden gömme-tabanlı bir sınıflandırıcı değil?** Two reasons. First, the technique space is small (13 entries) and the keywords are already high-precision — embedding similarity tends to drag in adjacent-but-wrong techniques (e.g. matching "phishing" to "Valid Accounts" via credential-theft adjacency). Second, **explainability** is part of the spec: every `(document, technique)` edge records the matched phrase, which is what powers the dashboard's "why was this tagged" inspector. A vector-similarity edge would lose that.
+
+*İki neden. Birincisi, teknik uzayı küçük (13 giriş) ve anahtar kelimeler zaten yüksek kesinlikte — gömme benzerliği, bitişik-ama-yanlış teknikleri içeri çekme eğilimindedir (örn. "phishing"i kimlik bilgisi-hırsızlığı bitişikliği yoluyla "Valid Accounts" ile eşleştirmek). İkincisi, **açıklanabilirlik** spesifikasyonun parçasıdır: her `(doküman, teknik)` kenarı, eşleşen ifadeyi kaydeder; bu da panonun "bu neden etiketlendi" denetimcisini güçlendirir. Vektör benzerliği kenarı bunu kaybederdi.*
+
+The cleanup is **idempotent and transactional**: low-confidence matches are wiped before re-classification, and the entire run is wrapped in a single PostgreSQL transaction so a partial failure rolls back cleanly.
+
+*Temizleme **bölünebilir ve işlemseldir**: düşük güvenli eşleşmeler yeniden sınıflandırmadan önce silinir ve tüm çalıştırma tek bir PostgreSQL işlemine sarılır, böylece kısmi başarısızlık temiz bir şekilde geri alınır.*
+
+### ④ Actor Alias Resolver / Aktör Takma Ad Çözücü — `collector/actor-match.ts`
+
+**EN:** Real threat-actor names live in many forms. APT1 is also `Comment Crew`, `Comment Group`, `Shanghai Group`. Lazarus is also `APT38`, `Hidden Cobra`, `Zinc`, `Diamond Sleet`. The alias resolver takes the raw text and returns the canonical actor name by:
+
+1. **Direct match** against a curated alias table (~200 actors, ~1,200 aliases)
+2. **Alias normalization** — lowercased, diacritics stripped, common infix stripped (`-`, `_`, `.`)
+3. **Disambiguation** — when the same alias maps to multiple canonicals (rare, e.g. shared C2 infrastructure), the resolver picks the one with the most co-occurring indicators in the document
+
+**TR:** Gerçek tehdit aktörü isimleri birçok biçimde yaşar. APT1 aynı zamanda `Comment Crew`, `Comment Group`, `Shanghai Group`. Lazarus aynı zamanda `APT38`, `Hidden Cobra`, `Zinc`, `Diamond Sleet`. Takma ad çözücü ham metni alır ve şu yollarla kanonik aktör adını döndürür:
+
+1. Eğrilmiş bir takma ad tablosuna karşı **doğrudan eşleşme** (~200 aktör, ~1.200 takma ad)
+2. **Takma ad normalleştirme** — küçük harfe çevirme, aksan işaretleri çıkarma, yaygın ekleri kaldırma (`-`, `_`, `.`)
+3. **Belirsizlik giderme** — aynı takma ad birden çok kanonik adla eşleştiğinde (nadir, örn. paylaşılan C2 altyapısı), çözücü dokümandaki en çok birlikte görülen göstergeyle eşleşeni seçer
+
+**Determinism / Belirleyicilik:** The function `resolveActor(text: string, documentIoCs: Set<string>): CanonicalActor` is pure. Same input → same canonical name, every time, on every host. The 9 KB module is fully unit-tested.
+
+### ⑤ Graph Stitcher / Grafik Birleştirici — `collector/build-graph.ts`
+
+**EN:** Every link in the threat graph is computed locally, not queried from an external knowledge graph. Three kinds of edges are produced, each with a typed schema and a confidence score:
+
+| Edge / Kenar | Source / Kaynak | Confidence |
+|--------------|----------------|------------|
+| `actor → technique (uses)` | `actors.ttps` × MITRE ATT&CK | 0.90 |
+| `actor → actor (co-mentioned)` | `documents.actors` co-occurrence count | proportional to count |
+| `actor → sector (targets)` | `documents.sectors` × `documents.actors` | 0.70 |
+
+The graph is materialized into a `graph_edges` table, and the SQL view `v_graph` exposes it for the dashboard's `/graph` route and any external API consumer. The view is rebuilt from scratch each run (`TRUNCATE` + re-population) — fully idempotent.
+
+**TR:** Tehdit grafiğindeki her bağlantı harici bir bilgi grafiğinden sorgulanmaz, yerelde hesaplanır. Üç tür kenar üretilir; her birinin tiplendirilmiş bir şeması ve güven puanı vardır:
+
+| Kenar | Kaynak | Güven |
+|-------|--------|-------|
+| `aktör → teknik (kullanır)` | `actors.ttps` × MITRE ATT&CK | 0.90 |
+| `aktör → aktör (birlikte anıldı)` | `documents.actors` birlikte-geçme sayısı | sayıyla orantılı |
+| `aktör → sektör (hedefler)` | `documents.sectors` × `documents.actors` | 0.70 |
+
+Grafik bir `graph_edges` tablosuna somutlaştırılır ve SQL view `v_graph` panonun `/graph` rotası ile harici API tüketicileri için onu dışa açar. View her çalıştırmada sıfırdan yeniden oluşturulur (`TRUNCATE` + yeniden doldurma) — tamamen bölünebilir.
+
+### ⑥ Quality Scorer / Kalite Puanlayıcı — `collector/quality-score.ts`
+
+**EN:** Every document gets a **deterministic 0–100 quality score** computed from:
+
+| Component / Bileşen | Max Points | Rationale / Gerekçe |
+|----------------------|------------|---------------------|
+| `word_count` bucket | 50 | 0–50 words → 0 pts; 50–200 → 20; 200–500 → 40; 500+ → 50 |
+| Entity richness (actors + CVEs + techniques + sectors + IoCs) | 30 | Capped at 30 to prevent a single huge-incident doc from dominating |
+| Kill-chain phase tagged | 5 | Indicates structured intelligence, not a news byte |
+| AI-threat flag | 5 | Signals the doc belongs to the `/ai-threats` lane |
+| Source tier (1=authoritative, 2=trusted, 3=community) | 10 | T1=10, T2=7, T3=4 |
+
+The score is recomputed every cycle and the column is `quality_score INTEGER DEFAULT 0`. Dashboard routes can filter by minimum score, and the `/sources` page surfaces a per-source average to spot feed-quality drift.
+
+**TR:** Her doküman, aşağıdakilerden hesaplanan **belirleyici 0–100 kalite puanı** alır:
+
+| Bileşen | En Fazla Puan | Gerekçe |
+|---------|---------------|---------|
+| `word_count` kovası | 50 | 0–50 kelime → 0 pt; 50–200 → 20; 200–500 → 40; 500+ → 50 |
+| Varlık zenginliği (aktörler + CVE'ler + teknikler + sektörler + IoC'ler) | 30 | Tek bir büyük olay dokümanının baskın olmasını engellemek için 30'da sınırlandırıldı |
+| Kill-chain fazı etiketli | 5 | Yapılandırılmış istihbarata işaret eder, bir haber parçasına değil |
+| YZ-tehdit bayrağı | 5 | Dokümanın `/ai-threats` şeridine ait olduğunu belirtir |
+| Kaynak seviyesi (1=yetkili, 2=güvenilir, 3=topluluk) | 10 | T1=10, T2=7, T3=4 |
+
+Puan her döngüde yeniden hesaplanır ve kolon `quality_score INTEGER DEFAULT 0` şeklindedir. Pano rotaları minimum puana göre filtreleyebilir ve `/sources` sayfası, kaynak kalitesi kaymasını tespit etmek için kaynak başına ortalamayı yüzeye çıkarır.
+
+### ⑦ Optional LLM Summary / İsteğe Bağlı LLM Özeti — `collector/llm-summary.ts`
+
+**EN:** This is the **only** component in the architecture that is allowed to talk to an external service, and it is **off by default**. The behavior is:
+
+```ts
+// llm-summary.ts (excerpt)
+const ENDPOINT = process.env.LLM_ENDPOINT || '';
+const API_KEY  = process.env.LLM_API_KEY  || '';
+
+if (!ENDPOINT || !API_KEY) {
+  log('LLM_ENDPOINT/API_KEY tanımsız — deterministik özet korunuyor (atlandı)');
+  return;   // ← defaults to skipping entirely
+}
+```
+
+**When unconfigured:** the script is a no-op. Documents keep the deterministic short summary derived from their first paragraph + extracted entities. This is the production default.
+
+**When configured:** the script POSTs to `LLM_ENDPOINT` (e.g. `https://api.openai.com/v1/chat/completions` or a local Ollama endpoint at `http://127.0.0.1:11434/v1/chat/completions`) with a system prompt that pins the model to a "threat intelligence analyst" persona. The summary is then written back to `documents.summary`, **replacing** the deterministic one.
+
+**TR:** Bu, mimaride harici bir hizmetle konuşmasına izin verilen **tek** bileşendir ve **varsayılan olarak kapalıdır**. Davranış şöyledir:
+
+```ts
+// llm-summary.ts (parça)
+const ENDPOINT = process.env.LLM_ENDPOINT || '';
+const API_KEY  = process.env.LLM_API_KEY  || '';
+
+if (!ENDPOINT || !API_KEY) {
+  log('LLM_ENDPOINT/API_KEY tanımsız — deterministik özet korunuyor (atlandı)');
+  return;   // ← tamamen atlamayı varsayar
+}
+```
+
+**Yapılandırılmamışken:** betik bir no-op'tur. Dokümanlar, ilk paragraflarından + çıkarılan varlıklardan türetilen belirleyici kısa özeti korur. Bu üretim varsayılanıdır.
+
+**Yapılandırıldığında:** betik, modeli "tehdit istihbaratı analisti" kişiliğine sabitleyen bir sistem komutuyla `LLM_ENDPOINT`'e (örn. `https://api.openai.com/v1/chat/completions` veya `http://127.0.0.1:11434/v1/chat/completions`'deki yerel bir Ollama uç noktası) POST atar. Özet daha sonra `documents.summary`'e **geri yazılır** ve belirleyici olanın **yerini alır**.
+
+**Why optional, not required? / Neden isteğe bağlı, neden zorunlu değil?** Because the project's spec is **reproducibility first**. A hosted LLM endpoint would (a) cost per call, (b) vary the output between runs even with the same input, (c) introduce an external dependency the rest of the stack doesn't have. The platform's promise to a reviewer is: *any number you see in the dashboard is a function of the documents in the database, not a function of which model was online when you asked*. The optional LLM path is documented and tested, but it is not in the default loop.
+
+*Çünkü projenin spesifikasyonu **önce tekrarlanabilirlik**tir. Barındırılan bir LLM uç noktası (a) çağrı başına maliyet oluşturur, (b) aynı girdiyle bile çalıştırmalar arasında çıktıyı değiştirir, (c) yığının geri kalanının sahip olmadığı harici bir bağımlılık getirir. Platformun bir incelemeye verdiği söz şudur: *panoda gördüğünüz her sayı, veritabanındaki dokümanların bir fonksiyonudur, sorduğunuzda hangi modelin çevrimiçi olduğunun değil*. İsteğe bağlı LLM yolu belgelenmiş ve test edilmiştir, ancak varsayılan döngüde değildir.*
+
+**Where an LLM can be plugged in / Bir LLM'nin nereye takılabileceği:**
+
+```env
+# .env.example (already shipped)
+LLM_ENDPOINT=https://api.openai.com/v1/chat/completions   # or your local Ollama
+LLM_API_KEY=sk-...
+LLM_MODEL=gpt-4o-mini                                      # or llama3.1:8b, qwen2.5:7b, ...
+LLM_BATCH=10                                               # docs per run
+```
+
+If you point `LLM_ENDPOINT` at a local Ollama (`http://127.0.0.1:11434/v1/chat/completions`), the entire pipeline remains local — the optionality is about the *contract*, not the *topology*.
+
+*`LLM_ENDPOINT`'i yerel bir Ollama'ya (`http://127.0.0.1:11434/v1/chat/completions`) yönlendirirseniz, tüm hat yerel kalır — isteğe bağlılık *sözleşmeyle* ilgilidir, *topolojiyle* değil.*
+
+### Properties of the Local AI Layer / Yerel YZ Katmanının Özellikleri
+
+| Property / Özellik | Mechanism / Mekanizma |
+|--------------------|------------------------|
+| **No external call on the inference path / Çıkarım yolunda harici çağrı yok** | Every classifier is a pure function; LLM summary is off by default. |
+| **Deterministic / Belirleyici** | Pure functions + PostgreSQL `ON CONFLICT DO NOTHING` + idempotent scripts. Same input → same output, byte-for-byte, on every run, on every host. |
+| **Auditable / Denetlenebilir** | Every classification decision stores the matched phrase, the confidence, and the reason. The "why was this tagged" inspector on each document page renders this metadata. |
+| **Reproducible / Tekrarlanabilir** | A fresh checkout of the repo + a PostgreSQL dump is sufficient to regenerate every dashboard number. No model weights to track, no API versions to pin. |
+| **Cheap / Ucuz** | The whole 6-hour pipeline runs in <2 minutes wall-clock on a 4-vCPU VM. No GPU. No paid API. |
+| **Hot-swappable / Yerinde değiştirilebilir** | Want to upgrade the IoC classifier to a fine-tuned NER? Drop in a new module, keep the same `(value, type, context) → classification` signature, and every downstream consumer keeps working. The architecture is the contract. |
 
 ---
 
