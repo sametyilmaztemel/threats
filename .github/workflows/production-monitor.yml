@@ -1,0 +1,53 @@
+name: production-monitor
+
+# threats.0rce.com dış monitor — uptime/ingestion/veri kalitesi alarmı.
+# Server monitorle (systemd) DUPLICATE üretmemek için: GitHub Ağa webhook YOK.
+# Bu workflow yalnız smoke/audit'i üretir; alarmı server monitor yapar.
+# Aşama 1'in production-smoke workflow'unu bozmaz (ayrı workflow, ayrı tetik).
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+# Aynı anda üst üste koşmasın
+concurrency:
+  group: production-monitor
+  cancel-in-progress: true
+
+# En düşük izinler; webhook yok -> contents: read yeterli
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Fork PR'larinda schedule/dispatch calistirma; yalniz default branch + origin repo
+    if: >-
+      !(github.event_name == 'schedule' && github.repository != '0rce-Labs/threats-0rce') &&
+      !(github.event_name == 'workflow_dispatch' && github.repository != '0rce-Labs/threats-0rce')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node (LTS 22)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Parser + monitor unit tests
+        run: |
+          node --test test/production-monitor.test.mjs
+          node --test test/production-smoke.test.mjs
+
+      - name: Dry-run monitor (webhook YOK)
+        run: node scripts/production-monitor.mjs --dry-run
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-monitor-logs
+          path: '*.log'
+          if-no-files-found: ignore

@@ -14,13 +14,14 @@ import assert from 'node:assert/strict';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
   extractDocCount, parseSourceHealth, cspNonce, scriptNonces,
-  sitemapLocs, parseServerTiming,
+  sitemapLocs, parseServerTiming, parseLiveFeed, verifyLiveFeed,
 } from './lib/parsers.mjs';
+import { httpRetry } from './lib/monitor-core.mjs';
 
 const BASE = (process.env.BASE_URL || 'https://threats.0rce.com').replace(/\/$/, '');
 const MODE = process.argv.includes('--audit') ? 'audit' : 'smoke';
 const UA = 'threats-production-smoke/1.0';
-const TIMEOUT = 20000; // 20s timeout
+const TIMEOUT = 30000; // 30s timeout (CI runner latency toleransi; 5xx zaten hizli doner, maskeleme yok)
 const MAX_HTML = 4 * 1024 * 1024;
 
 // Exact false-positive regresyon sabitleri (kullanıcı bunları exact tutmamı istedi).
@@ -50,20 +51,36 @@ function warn(name, detail = '') {
 
 // fetch helper: timeout + UA + gzip otomatik (node 22+ brotli/gzip çözer)
 async function get(url, headers = {}, timeout = TIMEOUT) {
+  // Retry: network/timeout/408/425/429/5xx (max 3, exp backoff + jitter).
+  // 4xx (200, 302, 304, 4xx validation) retry YOK — CSP/data/SEO assertion upstream kontrol eder.
+  // httpRetry 4xx'te res döndürür (caller assert eder), 5xx/network'te throws.
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeout);
+  let res;
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: { 'user-agent': UA, ...headers },
-      signal: ctrl.signal,
-      redirect: 'follow',
+    res = await httpRetry(url, {
+      // Standart route retry limitleri (kullanici): perAttempt 10s, total 30s, max 3.
+      // /feed cold-cache özel ele alinir (testFeedCacheWarmUp) — warm-up maxAttempts=1 20s.
+      // Yavas basarili 200 retry edilmez (maskeleme yok). Kalici 5xx/timeout throws.
+      maxAttempts: 3,
+      baseBackoffMs: 300,
+      fetchOpts: {
+        method: 'GET',
+        headers: { 'user-agent': UA, ...headers },
+        signal: ctrl.signal,
+        redirect: 'follow',
+      },
+      onAttempt: (a) => {
+        if (a.status >= 500 || a.error) {
+          console.log(`[[[[ retry ${a.attempt}/${a.max} ${url} status=${a.status} err=${a.error||'-'} ]]]]`);
+        }
+      },
     });
-    const buf = Buffer.from(await res.arrayBuffer());
-    return { status: res.status, headers: res.headers, body: buf.toString('utf8'), bytes: buf.length };
   } finally {
     clearTimeout(t);
   }
+  const buf = Buffer.from(await res.arrayBuffer());
+  return { status: res.status, headers: res.headers, body: buf.toString('utf8'), bytes: buf.length };
 }
 
 // Header'dan (Headers nesnesi) başlık — case-insensitive
@@ -138,23 +155,91 @@ async function testCspNonce() {
 
 // ---- 4. Worker cache ----
 async function testWorkerCache() {
-  console.log('\n== Worker cache ==');
-  // /feed'i warm-up et, ikinci istekte HIT bekle
-  await get(BASE + '/feed', BROWSER_HEADERS); // warm
+  console.log('\n== Worker cache (/feed cold-cache) ==');
+  // Cold-cache warm-up (DB COUNT/MIN/MAX agirsorgu): 1 attempt, 20s timeout, retry yok.
+  // Yavas basarili 200 retry edilmez (kullanici talebi: maskeleme yok).
+  // >8s ise WARN (yavaslik kaydedilir ama test gecmez).
+  const tWarm = Date.now();
+  let warmRes;
+  try {
+    warmRes = await httpRetry(BASE + '/feed', {
+      maxAttempts: 1,
+      perAttemptTimeoutMs: 20000,
+      totalBudgetMs: 20000,
+      baseBackoffMs: 0,
+      fetchOpts: {
+        method: 'GET',
+        headers: { 'user-agent': UA, ...BROWSER_HEADERS },
+        redirect: 'follow',
+      },
+      onAttempt: (a) => {
+        if (a.status >= 500 || a.error) {
+          console.log(`[[[[ warm-up ${a.attempt}/${a.max} ${BASE}/feed status=${a.status} err=${a.error||'-'} ]]]]`);
+        }
+      },
+    });
+  } catch (e) {
+    // Kalici 5xx/timeout/20s+ yavaslik: FAIL
+    const warmSec = ((Date.now() - tWarm) / 1000).toFixed(1);
+    report('/feed warm-up (maxAttempts=1, 20s timeout)', false, `${warmSec}s err=${e.message.slice(0,80)}`);
+    return;
+  }
+  const warmSec = ((Date.now() - tWarm) / 1000).toFixed(1);
+  if (warmRes.status !== 200) {
+    report('/feed warm-up 200 bekleniyor', false, `status=${warmRes.status}`);
+    return;
+  }
+  // Warm-up 8s+ ise WARN (yavaslik)
+  if (parseFloat(warmSec) > 8) {
+    report('/feed warm-up yavas (>8s)', null, `${warmSec}s — DB sorgusu agirsorgu`);
+  } else {
+    report('/feed warm-up basarili', true, `${warmSec}s`);
+  }
+  // Warm-up sonrasi 2. istek: HIT bekle, 10s/20s butce
   await sleep(300);
-  const r1 = await get(BASE + '/feed', BROWSER_HEADERS);
-  const r2 = await get(BASE + '/feed', BROWSER_HEADERS);
-  const st1 = headerGet(r1.headers, 'server-timing') || '';
+  const t2 = Date.now();
+  const r2 = await httpRetry(BASE + '/feed', {
+    maxAttempts: 3,
+    perAttemptTimeoutMs: 10000,
+    totalBudgetMs: 20000,
+    baseBackoffMs: 300,
+    fetchOpts: {
+      method: 'GET',
+      headers: { 'user-agent': UA, ...BROWSER_HEADERS },
+      redirect: 'follow',
+    },
+  });
+  const el2 = Date.now() - t2;
   const st2 = headerGet(r2.headers, 'server-timing') || '';
-  const hit = /cache;desc="?HIT/.test(st1) || /cache;desc="?HIT/.test(st2);
-  const cw = (st1 + st2).match(/cfWorker;dur=(\d+)/);
-  report('/feed cache HIT (Server-Timing)', hit, st1.replace(/,\s*report.*/, '').trim() || 'no ST');
-  report('/feed cfWorker dur parse', !!cw, cw ? cw[1] + 'ms' : 'yok');
-  const cc = headerGet(r1.headers, 'cache-control');
+  const hit = /cache;desc="?HIT/.test(st2) || /cfCacheStatus;desc="?HIT/.test(st2);
+  // Warm-up basarili olduktan sonra HIT oluşmazsa FAIL
+  report('/feed 2. istek HIT (warm-up sonrasi)', hit, st2.replace(/,\s*report.*/, '').trim() || 'no ST');
+  // HIT Worker süresi >250ms ise WARN
+  const cw = st2.match(/cfWorker;dur=(\d+)/);
+  if (cw) {
+    const dur = Number(cw[1]);
+    report('/feed cfWorker dur', dur <= 250 ? true : null, `${dur}ms (${dur <= 250 ? 'OK' : 'WARN'})`);
+  } else {
+    report('/feed cfWorker dur parse', false, 'yok');
+  }
+  // nonce'lu no-store kontrolu (cache bypass)
+  const cc = headerGet(r2.headers, 'cache-control');
   report("/feed nonce'lu no-store", /private,\s?no-store/.test(cc || ''), cc);
-  // iki HIT farklı nonce
-  const n1 = cspNonce(headerGet(r1.headers, 'content-security-policy') || '');
-  const n2 = cspNonce(headerGet(r2.headers, 'content-security-policy') || '');
+  // iki HIT farklı nonce (ayrı istek)
+  const t3 = Date.now();
+  const r3 = await httpRetry(BASE + '/feed', {
+    maxAttempts: 3,
+    perAttemptTimeoutMs: 10000,
+    totalBudgetMs: 20000,
+    baseBackoffMs: 300,
+    fetchOpts: {
+      method: 'GET',
+      headers: { 'user-agent': UA, ...BROWSER_HEADERS },
+      redirect: 'follow',
+    },
+  });
+  const n1 = cspNonce(headerGet(r2.headers, 'content-security-policy') || '');
+  const n2 = cspNonce(headerGet(r3.headers, 'content-security-policy') || '');
   report('/feed iki HIT farklı nonce', n1 && n2 && n1 !== n2, `${n1?.slice(0,6)} vs ${n2?.slice(0,6)}`);
 
   // private bypass
@@ -191,7 +276,17 @@ async function testDataRegression() {
   for (const bad of ['FortiBleed', 'Kubota', 'ChocoPoC', 'Argo CD', '2026-07-01']) {
     report(`Home: ${bad} YOK`, !home.body.includes(bad));
   }
-  report('Home: güncel kayıt (doc 112076 ya da yeni)', /\/document\/11207[6789]|11208[0-9]|112076/.test(home.body), home.body.match(/\/document\/11\d{4}/)?.[0] || '');
+  // Live Feed semantic: tüm /document/<id> + SIGNAL tarihi + azalan sıra + MAX_LIVE_FEED_AGE_HOURS.
+  // Sabit ID aralığı YOK (her ingestion artışında bozulur); id yalnız pozitif int doğrulanır.
+  const MAX_LIVE_FEED_AGE_HOURS = Number(process.env.MAX_LIVE_FEED_AGE_HOURS || 48);
+  const lf = parseLiveFeed(home.body);
+  const lv = verifyLiveFeed(lf, { maxAgeHours: MAX_LIVE_FEED_AGE_HOURS });
+  report('Live Feed: doc id > 0 unique', lf.docIds.length > 0, `n=${lf.docIds.length} ilk=${lf.docIds[0]||'?'}`);
+  report('Live Feed: tüm id pozitif int', lf.docIds.every((s) => /^[1-9]\d*$/.test(s)));
+  report('Live Feed: SIGNAL ACTIVE ISO tarih parse', lf.signalTimestamp instanceof Date, lf.signalTimestamp?.toISOString() || 'yok');
+  const future = lf.signalTimestamp && lf.signalTimestamp.getTime() > Date.now();
+  report('Live Feed: gelecek tarih YOK', !future);
+  report('Live Feed: azalan sıra + maxAgeHours içinde', lv.ok, lv.errors[0] || `${MAX_LIVE_FEED_AGE_HOURS}h sınır`);
   // Earth Lusca doc count = 1
   const lusca = await get(BASE + '/actor/Earth%20Lusca', BROWSER_HEADERS);
   const luscaCount = extractDocCount(lusca.body);
