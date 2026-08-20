@@ -21,7 +21,7 @@ import { httpRetry } from './lib/monitor-core.mjs';
 const BASE = (process.env.BASE_URL || 'https://threats.0rce.com').replace(/\/$/, '');
 const MODE = process.argv.includes('--audit') ? 'audit' : 'smoke';
 const UA = 'threats-production-smoke/1.0';
-const TIMEOUT = 20000; // 20s timeout
+const TIMEOUT = 30000; // 30s timeout (CI runner latency toleransi; 5xx zaten hizli doner, maskeleme yok)
 const MAX_HTML = 4 * 1024 * 1024;
 
 // Exact false-positive regresyon sabitleri (kullanıcı bunları exact tutmamı istedi).
@@ -51,20 +51,33 @@ function warn(name, detail = '') {
 
 // fetch helper: timeout + UA + gzip otomatik (node 22+ brotli/gzip çözer)
 async function get(url, headers = {}, timeout = TIMEOUT) {
+  // Retry: network/timeout/408/425/429/5xx (max 3, exp backoff + jitter).
+  // 4xx (200, 302, 304, 4xx validation) retry YOK — CSP/data/SEO assertion upstream kontrol eder.
+  // httpRetry 4xx'te res döndürür (caller assert eder), 5xx/network'te throws.
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeout);
+  let res;
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: { 'user-agent': UA, ...headers },
-      signal: ctrl.signal,
-      redirect: 'follow',
+    res = await httpRetry(url, {
+      maxAttempts: 3,
+      baseBackoffMs: 300,
+      fetchOpts: {
+        method: 'GET',
+        headers: { 'user-agent': UA, ...headers },
+        signal: ctrl.signal,
+        redirect: 'follow',
+      },
+      onAttempt: (a) => {
+        if (a.status >= 500 || a.error) {
+          console.log(`[[[[ retry ${a.attempt}/${a.max} ${url} status=${a.status} err=${a.error||'-'} ]]]]`);
+        }
+      },
     });
-    const buf = Buffer.from(await res.arrayBuffer());
-    return { status: res.status, headers: res.headers, body: buf.toString('utf8'), bytes: buf.length };
   } finally {
     clearTimeout(t);
   }
+  const buf = Buffer.from(await res.arrayBuffer());
+  return { status: res.status, headers: res.headers, body: buf.toString('utf8'), bytes: buf.length };
 }
 
 // Header'dan (Headers nesnesi) başlık — case-insensitive

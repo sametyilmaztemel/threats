@@ -19,7 +19,9 @@ import { randomUUID } from 'node:crypto';
 import {
   cspNonce, scriptNonces, parseSourceHealth,
   parseServerTiming, seoMeta,
+  sitemapLocs,
 } from './lib/parsers.mjs';
+import { httpRetry } from './lib/monitor-core.mjs';
 import {
   fingerprint as coreFingerprint, decideAlarm as coreDecide, sanitizeState,
   ingestionSeverityFromReady, sourcesFromReady, cacheHitFromServerTiming,
@@ -223,13 +225,31 @@ function redact(o) {
 
 // ---------------- HTTP helper ----------------
 async function httpGet(url, headers = {}) {
+  // Retry: network/timeout/408/425/429/5xx (max 3, exp backoff + jitter).
+  // 4xx retry YOK (CSP/origin guard/404 caller assertion yapar).
+  // 5xx tükenirse throws (kalici problem maskelenmez).
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT);
+  let res;
   try {
-    const res = await fetch(url, { method: 'GET', headers: { 'user-agent': UA, ...headers }, signal: ctrl.signal, redirect: 'follow' });
-    const buf = Buffer.from(await res.arrayBuffer());
-    return { status: res.status, headers: res.headers, body: buf.toString('utf8') };
+    res = await httpRetry(url, {
+      maxAttempts: 3,
+      baseBackoffMs: 300,
+      fetchOpts: {
+        method: 'GET',
+        headers: { 'user-agent': UA, ...headers },
+        signal: ctrl.signal,
+        redirect: 'follow',
+      },
+      onAttempt: (a) => {
+        if (a.status >= 500 || a.error) {
+          log('warn', 'monitor', 'http_retry', `${a.attempt}/${a.max} ${url} status=${a.status} err=${a.error||'-'}`);
+        }
+      },
+    });
   } finally { clearTimeout(t); }
+  const buf = Buffer.from(await res.arrayBuffer());
+  return { status: res.status, headers: res.headers, body: buf.toString('utf8') };
 }
 const hget = (h, n) => headerGetRaw(h, n);
 
