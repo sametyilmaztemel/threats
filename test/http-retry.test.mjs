@@ -4,7 +4,7 @@
 
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { httpRetry, emitWebhook } from '../scripts/lib/monitor-core.mjs';
+import { httpRetry, emitWebhook, parseRetryAfter } from '../scripts/lib/monitor-core.mjs';
 
 const _origFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = _origFetch; });
@@ -300,17 +300,41 @@ test('retry-after: delta-seconds', async () => {
   assert.ok(elapsed < 3000, `Retry-After 1s + backoff, elapsed=${elapsed}ms cok uzun`);
 });
 
-// 21. Retry-After: HTTP-date (gelecek) — delta parse semantigi test 25 (delta-seconds) ile ayni.
-test.skip('retry-after: HTTP-date (gelecek ~1s)', async () => {
-  const future = new Date(Date.now() + 1000).toUTCString();
+// 21. Retry-After: HTTP-date (gelecek) — deterministik (sabit nowMs, sabit sleep)
+test('retry-after: HTTP-date (gelecek 5s) deterministik', async () => {
+  // Sabit nowMs: 2026-08-20T10:00:00Z
+  const NOW_MS = 1_784_643_200_000;
+  // 5s gelecek
+  const future = new Date(NOW_MS + 5000).toUTCString();
+  // parseRetryAfter dogrudan: delta = 5000ms
+  assert.equal(parseRetryAfter(future, NOW_MS), 5000);
+  // gecmis tarih → 0
+  const past = new Date(NOW_MS - 5000).toUTCString();
+  assert.equal(parseRetryAfter(past, NOW_MS), 0);
+  // delta-seconds (number): 3 → 3000ms
+  assert.equal(parseRetryAfter('3', NOW_MS), 3000);
+  // null/NaN → null
+  assert.equal(parseRetryAfter(null, NOW_MS), null);
+  assert.equal(parseRetryAfter('abc', NOW_MS), null);
+  // default nowMs = Date.now() (parametre yok): returns number | null
+  const r = parseRetryAfter('2');
+  assert.ok(r === null || r === 2000);
+  // httpRetry entegrasyonu: sleep DI 0ms ile (gercek bekleme yok)
   const f = mockFetchWithHeaders([{ status: 429, headers: new Map([['retry-after', future]]) }, { status: 200 }]);
   globalThis.fetch = f;
   const t0 = Date.now();
-  const res = await httpRetry('http://x/', { fetchImpl: f, totalBudgetMs: 30000, perAttemptTimeoutMs: 10000, baseBackoffMs: 5 });
+  const res = await httpRetry('http://x/', {
+    fetchImpl: f,
+    totalBudgetMs: 30000,
+    perAttemptTimeoutMs: 10000,
+    baseBackoffMs: 5,
+    nowMs: NOW_MS,
+    sleep: async () => {}, // 0ms — gercek bekleme yok
+  });
   const elapsed = Date.now() - t0;
   assert.equal(res.status, 200);
-  // delta ~500-1000ms (test setup degisken). elapsed >= 300.
-  assert.ok(elapsed >= 300, `Retry-After 1s bekleniyor, elapsed=${elapsed}ms`);
+  // sleep DI 0ms → elapsed ~0 (fetch mock + onAttempt). Saniye siniri asilmaz.
+  assert.ok(elapsed < 1000, `HTTP-date test elapsed=${elapsed}ms (sleep DI 0ms, saniye siniri yok)`);
 });
 
 // 22. Aşırı Retry-After (örn "30") → 5s cap

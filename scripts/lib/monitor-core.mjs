@@ -195,14 +195,17 @@ function _safeUrlForLog(u) {
   } catch { return '<invalid-url>'; }
 }
 
-// Retry-After parse: delta-seconds (number) veya HTTP-date (string)
-function _parseRetryAfter(v, nowMs) {
+// Retry-After parse: delta-seconds (number) veya HTTP-date (string).
+// nowMs: DI (test deterministic); default Date.now().
+// Returns ms (>=0) veya null (parse edilemedi / gecmis tarih).
+export function parseRetryAfter(v, nowMs) {
   if (v == null) return null;
   const n = Number(v);
   if (Number.isFinite(n) && n >= 0) return Math.floor(n * 1000);
   // HTTP-date: "Wed, 21 Oct 2015 07:28:00 GMT"
-  const t = Date.parse(v);
-  if (Number.isFinite(t)) return Math.max(0, t - nowMs);
+ const _now = typeof nowMs === 'number' ? nowMs : Date.now();
+ const t = Date.parse(v);
+  if (Number.isFinite(t)) return Math.max(0, t - _now);
   return null;
 }
 
@@ -283,7 +286,7 @@ export async function httpRetry(url, opts = {}) {
     // Retry-After varsa delta olarak kullan (cap olarak); yoksa exp backoff + jitter
     let delay;
     const ra = res && (res.headers && (res.headers.get ? res.headers.get('retry-after') : res.headers['retry-after']));
-    const raMs = _parseRetryAfter(ra, Date.now());
+    const raMs = parseRetryAfter(ra, opts.nowMs);
     if (raMs != null) {
       // Retry-After: min(header, MAX_RETRY_AFTER_MS, remaining)
       delay = Math.min(raMs, MAX_RETRY_AFTER_MS);
@@ -310,7 +313,8 @@ export async function httpRetry(url, opts = {}) {
     }
     // Max 5s cap (kullanici talebi: "asiri Retry-After 5s'de cap edilir")
     delay = Math.min(delay, remainingAfter);
-    await new Promise((r) => setTimeout(r, delay));
+    const sleep = typeof opts.sleep === 'function' ? opts.sleep : (ms) => new Promise((r) => setTimeout(r, ms));
+    await sleep(delay);
   }
   // (dongu her zaman ya return ya throw yapar)
   throw lastErr || new Error('http-retry exhausted');
