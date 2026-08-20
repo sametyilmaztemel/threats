@@ -59,10 +59,11 @@ async function get(url, headers = {}, timeout = TIMEOUT) {
   let res;
   try {
     res = await httpRetry(url, {
+      // Standart route retry limitleri (kullanici): perAttempt 10s, total 30s, max 3.
+      // /feed cold-cache özel ele alinir (testFeedCacheWarmUp) — warm-up maxAttempts=1 20s.
+      // Yavas basarili 200 retry edilmez (maskeleme yok). Kalici 5xx/timeout throws.
       maxAttempts: 3,
       baseBackoffMs: 300,
-      perAttemptTimeoutMs: 15000,
-      totalBudgetMs: 60000,
       fetchOpts: {
         method: 'GET',
         headers: { 'user-agent': UA, ...headers },
@@ -154,23 +155,91 @@ async function testCspNonce() {
 
 // ---- 4. Worker cache ----
 async function testWorkerCache() {
-  console.log('\n== Worker cache ==');
-  // /feed'i warm-up et, ikinci istekte HIT bekle
-  await get(BASE + '/feed', BROWSER_HEADERS); // warm
+  console.log('\n== Worker cache (/feed cold-cache) ==');
+  // Cold-cache warm-up (DB COUNT/MIN/MAX agirsorgu): 1 attempt, 20s timeout, retry yok.
+  // Yavas basarili 200 retry edilmez (kullanici talebi: maskeleme yok).
+  // >8s ise WARN (yavaslik kaydedilir ama test gecmez).
+  const tWarm = Date.now();
+  let warmRes;
+  try {
+    warmRes = await httpRetry(BASE + '/feed', {
+      maxAttempts: 1,
+      perAttemptTimeoutMs: 20000,
+      totalBudgetMs: 20000,
+      baseBackoffMs: 0,
+      fetchOpts: {
+        method: 'GET',
+        headers: { 'user-agent': UA, ...BROWSER_HEADERS },
+        redirect: 'follow',
+      },
+      onAttempt: (a) => {
+        if (a.status >= 500 || a.error) {
+          console.log(`[[[[ warm-up ${a.attempt}/${a.max} ${BASE}/feed status=${a.status} err=${a.error||'-'} ]]]]`);
+        }
+      },
+    });
+  } catch (e) {
+    // Kalici 5xx/timeout/20s+ yavaslik: FAIL
+    const warmSec = ((Date.now() - tWarm) / 1000).toFixed(1);
+    report('/feed warm-up (maxAttempts=1, 20s timeout)', false, `${warmSec}s err=${e.message.slice(0,80)}`);
+    return;
+  }
+  const warmSec = ((Date.now() - tWarm) / 1000).toFixed(1);
+  if (warmRes.status !== 200) {
+    report('/feed warm-up 200 bekleniyor', false, `status=${warmRes.status}`);
+    return;
+  }
+  // Warm-up 8s+ ise WARN (yavaslik)
+  if (parseFloat(warmSec) > 8) {
+    report('/feed warm-up yavas (>8s)', null, `${warmSec}s — DB sorgusu agirsorgu`);
+  } else {
+    report('/feed warm-up basarili', true, `${warmSec}s`);
+  }
+  // Warm-up sonrasi 2. istek: HIT bekle, 10s/20s butce
   await sleep(300);
-  const r1 = await get(BASE + '/feed', BROWSER_HEADERS);
-  const r2 = await get(BASE + '/feed', BROWSER_HEADERS);
-  const st1 = headerGet(r1.headers, 'server-timing') || '';
+  const t2 = Date.now();
+  const r2 = await httpRetry(BASE + '/feed', {
+    maxAttempts: 3,
+    perAttemptTimeoutMs: 10000,
+    totalBudgetMs: 20000,
+    baseBackoffMs: 300,
+    fetchOpts: {
+      method: 'GET',
+      headers: { 'user-agent': UA, ...BROWSER_HEADERS },
+      redirect: 'follow',
+    },
+  });
+  const el2 = Date.now() - t2;
   const st2 = headerGet(r2.headers, 'server-timing') || '';
-  const hit = /cache;desc="?HIT/.test(st1) || /cache;desc="?HIT/.test(st2);
-  const cw = (st1 + st2).match(/cfWorker;dur=(\d+)/);
-  report('/feed cache HIT (Server-Timing)', hit, st1.replace(/,\s*report.*/, '').trim() || 'no ST');
-  report('/feed cfWorker dur parse', !!cw, cw ? cw[1] + 'ms' : 'yok');
-  const cc = headerGet(r1.headers, 'cache-control');
+  const hit = /cache;desc="?HIT/.test(st2) || /cfCacheStatus;desc="?HIT/.test(st2);
+  // Warm-up basarili olduktan sonra HIT oluşmazsa FAIL
+  report('/feed 2. istek HIT (warm-up sonrasi)', hit, st2.replace(/,\s*report.*/, '').trim() || 'no ST');
+  // HIT Worker süresi >250ms ise WARN
+  const cw = st2.match(/cfWorker;dur=(\d+)/);
+  if (cw) {
+    const dur = Number(cw[1]);
+    report('/feed cfWorker dur', dur <= 250 ? true : null, `${dur}ms (${dur <= 250 ? 'OK' : 'WARN'})`);
+  } else {
+    report('/feed cfWorker dur parse', false, 'yok');
+  }
+  // nonce'lu no-store kontrolu (cache bypass)
+  const cc = headerGet(r2.headers, 'cache-control');
   report("/feed nonce'lu no-store", /private,\s?no-store/.test(cc || ''), cc);
-  // iki HIT farklı nonce
-  const n1 = cspNonce(headerGet(r1.headers, 'content-security-policy') || '');
-  const n2 = cspNonce(headerGet(r2.headers, 'content-security-policy') || '');
+  // iki HIT farklı nonce (ayrı istek)
+  const t3 = Date.now();
+  const r3 = await httpRetry(BASE + '/feed', {
+    maxAttempts: 3,
+    perAttemptTimeoutMs: 10000,
+    totalBudgetMs: 20000,
+    baseBackoffMs: 300,
+    fetchOpts: {
+      method: 'GET',
+      headers: { 'user-agent': UA, ...BROWSER_HEADERS },
+      redirect: 'follow',
+    },
+  });
+  const n1 = cspNonce(headerGet(r2.headers, 'content-security-policy') || '');
+  const n2 = cspNonce(headerGet(r3.headers, 'content-security-policy') || '');
   report('/feed iki HIT farklı nonce', n1 && n2 && n1 !== n2, `${n1?.slice(0,6)} vs ${n2?.slice(0,6)}`);
 
   // private bypass

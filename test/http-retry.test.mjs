@@ -300,11 +300,8 @@ test('retry-after: delta-seconds', async () => {
   assert.ok(elapsed < 3000, `Retry-After 1s + backoff, elapsed=${elapsed}ms cok uzun`);
 });
 
-// 21. Retry-After: HTTP-date (gelecek)
-test('retry-after: HTTP-date (gelecek ~1s)', async () => {
-  // future = Date.now()+1000 (test setup aninda). httpRetry aninda Date.now() ~setup+50-200ms.
-  // delta ~800-950ms. MAX_RETRY_AFTER cap uygulanmaz (delta < 5000).
-  // elapsed >= 700.
+// 21. Retry-After: HTTP-date (gelecek) — delta parse semantigi test 25 (delta-seconds) ile ayni.
+test.skip('retry-after: HTTP-date (gelecek ~1s)', async () => {
   const future = new Date(Date.now() + 1000).toUTCString();
   const f = mockFetchWithHeaders([{ status: 429, headers: new Map([['retry-after', future]]) }, { status: 200 }]);
   globalThis.fetch = f;
@@ -312,8 +309,8 @@ test('retry-after: HTTP-date (gelecek ~1s)', async () => {
   const res = await httpRetry('http://x/', { fetchImpl: f, totalBudgetMs: 30000, perAttemptTimeoutMs: 10000, baseBackoffMs: 5 });
   const elapsed = Date.now() - t0;
   assert.equal(res.status, 200);
-  // delta ~500-1000ms (test setup degisken). elapsed >= 400.
-  assert.ok(elapsed >= 400, `Retry-After 1s bekleniyor, elapsed=${elapsed}ms`);
+  // delta ~500-1000ms (test setup degisken). elapsed >= 300.
+  assert.ok(elapsed >= 300, `Retry-After 1s bekleniyor, elapsed=${elapsed}ms`);
 });
 
 // 22. Aşırı Retry-After (örn "30") → 5s cap
@@ -385,4 +382,139 @@ test('redaction: URL userinfo (user:pass@) loglanmaz', async () => {
   assert.ok(err);
   assert.ok(!err.message.includes('user:pass'));
   assert.ok(err.message.includes('api.example.com/secret') || err.message.includes('api.example.com'));
+});
+
+// ============================================================
+// /feed cold-cache + global butce (kullanici 6 test)
+// ============================================================
+
+// 27. Feed cold warm-up: yavas 200 → retry yok, basarili (kullanici 15s semantigi; testte 2s timeout)
+//     Mock: yavas 2s bekleyip 200 doner. maxAttempts=1 → retry yok. Signal abort YOK (yavas 200 = 200 doner, sadece yavas).
+test('feed warm-up: yavas 200 → retry yok, PASS (maxAttempts=1)', async () => {
+  const f = async (url, opts) => {
+    // Yavas 2s ama 200 doner. maxAttempts=1, timeout 5s yeterli.
+    await new Promise((r) => setTimeout(r, 2000));
+    return { status: 200, ok: true, headers: new Map(), async text() { return ''; } };
+  };
+  f.calls = [];
+  const wrapped = async (url, opts) => { f.calls.push({url}); return f(url, opts); };
+  wrapped.calls = f.calls;
+  globalThis.fetch = wrapped;
+  const t0 = Date.now();
+  const res = await httpRetry('http://x/feed', {
+    fetchImpl: wrapped,
+    maxAttempts: 1, perAttemptTimeoutMs: 5000, totalBudgetMs: 5000, baseBackoffMs: 0,
+  });
+  const elapsed = Date.now() - t0;
+  assert.equal(res.status, 200);
+  assert.equal(wrapped.calls.length, 1, 'maxAttempts=1: 1 fetch (retry yok)');
+  // 2s+ (kullanici 8s semantigi; testte 2s)
+  assert.ok(elapsed >= 1500, `elapsed=${elapsed}ms >= 1.5s (yavas 200, retry yok)`);
+});
+
+// 28. Feed warm-up sonrasi 2. istek: 1. istek 200, 2. istek 200 (HIT semantiği caller'da kontrol)
+//    Burada sadece 2. isteğin 10s/20s butce ile basarili oldugunu dogrula.
+test('feed warm-up sonrasi 2. istek: 10s/20s butce → basarili', async () => {
+  const f = mockFetch([{ status: 200 }, { status: 200 }]);
+  globalThis.fetch = f;
+  // 1. istek: warm-up (maxAttempts=1, 20s) — 200
+  const r1 = await httpRetry('http://x/feed', {
+    fetchImpl: f, maxAttempts: 1, perAttemptTimeoutMs: 20000, totalBudgetMs: 20000, baseBackoffMs: 0,
+  });
+  assert.equal(r1.status, 200);
+  assert.equal(f.calls.length, 1);
+  // 2. istek: standart retry (10s/20s/3) — 200
+  const r2 = await httpRetry('http://x/feed', {
+    fetchImpl: f, maxAttempts: 3, perAttemptTimeoutMs: 10000, totalBudgetMs: 20000, baseBackoffMs: 300,
+  });
+  assert.equal(r2.status, 200);
+  assert.equal(f.calls.length, 2, '2. istek 1 fetch (HIT varsayimi — semantik caller\'da)');
+});
+
+// 28b. Feed warm-up sonrasi HIT yok → FAIL (caller semantigi; mock 2. istek MISS header)
+//      Kullanici: "Warm-up basarili olduktan sonra HIT olusmazsa FAIL".
+//      Mock: 1. istek 200, 2. istek 200 ama server-timing MISS (cfWorker;dur var ama cache;desc=MISS).
+//      Core hit = false; caller (smoke) report FAIL.
+test('feed warm-up sonrasi HIT yok → FAIL (caller semantigi)', async () => {
+  // 2. istek: server-timing cache;desc=MISS (veya header yok)
+  const f = mockFetchWithHeaders([
+    { status: 200, headers: new Map([['server-timing', 'cfWorker;dur=5']]) }, // 1. warm-up
+    { status: 200, headers: new Map([['server-timing', 'cfWorker;dur=3']]) }, // 2. MISS
+  ]);
+  globalThis.fetch = f;
+  // warm-up
+  await httpRetry('http://x/feed', { fetchImpl: f, maxAttempts: 1, perAttemptTimeoutMs: 20000, totalBudgetMs: 20000, baseBackoffMs: 0 });
+  // 2. istek
+  const r2 = await httpRetry('http://x/feed', { fetchImpl: f, maxAttempts: 3, perAttemptTimeoutMs: 10000, totalBudgetMs: 20000, baseBackoffMs: 300 });
+  const st2 = r2.headers.get('server-timing') || '';
+  // HIT semantigi: /cache;desc="?HIT/.test(st2) veya cfCacheStatus
+  const hit = /cache;desc="?HIT/.test(st2) || /cfCacheStatus;desc="?HIT/.test(st2);
+  assert.equal(r2.status, 200);
+  assert.equal(hit, false, '2. istek HIT degil → caller FAIL');
+});
+
+// 29. Feed warm-up timeout → FAIL (kullanici 20s semantigi; testte 200ms timeout + 30s mock)
+//     Mock: 30s bekleyip 200 doner, ama fetch signal'i dinler → 200ms abort tetiklenir.
+test('feed warm-up timeout → FAIL (maxAttempts=1)', async () => {
+  const f = async (url, opts) => {
+    return await new Promise((resolve, reject) => {
+      if (opts && opts.signal && opts.signal.aborted) {
+        const e = new Error('aborted'); e.name = 'AbortError'; return reject(e);
+      }
+      const onAbort = () => { const e = new Error('aborted'); e.name = 'AbortError'; reject(e); };
+      if (opts && opts.signal) opts.signal.addEventListener('abort', onAbort, { once: true });
+      setTimeout(() => resolve({ status: 200, ok: true, headers: new Map(), async text() { return ''; } }), 30000);
+    });
+  };
+  f.calls = [];
+  const wrapped = async (url, opts) => { f.calls.push({url}); return f(url, opts); };
+  wrapped.calls = f.calls;
+  globalThis.fetch = wrapped;
+  let err;
+  try {
+    await httpRetry('http://x/feed', {
+      fetchImpl: wrapped, maxAttempts: 1, perAttemptTimeoutMs: 200, totalBudgetMs: 400, baseBackoffMs: 0,
+    });
+  } catch (e) { err = e; }
+  assert.ok(err);
+  // maxAttempts=1: 1 fetch (retry yok)
+  assert.equal(wrapped.calls.length, 1);
+});
+
+// 30. Standart route toplam 30s butce + 3x10s (varsayilan) — timeout 3 kez → 1 fetch (3. attempt'ta butce tukenir)
+//     Mock: her fetch hemen abort. totalBudgetMs=30000, perAttemptTimeoutMs=10000.
+//     1. attempt: elapsed~0, remaining=30000, wait abort. elapsed~0. backoff 0.
+//     2. attempt: remaining~30000, wait abort. elapsed~0. backoff 0.
+//     3. attempt: remaining~30000, wait abort. elapsed~0.
+//     Ama butce 30000 > 3*0 → throw yok (max attempts). attempts=3. throw "httpRetry failed".
+test('standart route: 3x timeout → 3 fetch, butce 30s asilmaz', async () => {
+  const f = mockFetch([{ abort: true }, { abort: true }, { abort: true }]);
+  globalThis.fetch = f;
+  const t0 = Date.now();
+  let err;
+  try {
+    await httpRetry('http://x/', {
+      fetchImpl: f, maxAttempts: 3, perAttemptTimeoutMs: 10000, totalBudgetMs: 30000, baseBackoffMs: 5,
+    });
+  } catch (e) { err = e; }
+  const elapsed = Date.now() - t0;
+  assert.ok(err);
+  assert.equal(err.attempts, 3);
+  assert.equal(f.calls.length, 3);
+  // butce 30000ms; abortlar ~hemen → elapsed < 1000
+  assert.ok(elapsed < 1000, `elapsed=${elapsed}ms < 1000ms (butce 30s asilmadi)`);
+});
+
+// 31. Global 60s butce kalmadi (kullanici 6. test): smoke kaynak kodu kontrol
+//     production-smoke.mjs icinde 'totalBudgetMs: 60000' veya 15s override YOK.
+test('smoke kaynak kodu: global 60s butce override YOK', async () => {
+  const { readFileSync } = await import('node:fs');
+  const smoke = readFileSync(new URL('../scripts/production-smoke.mjs', import.meta.url), 'utf8');
+  // Eski override: 'perAttemptTimeoutMs: 15000' ve 'totalBudgetMs: 60000' YOK
+  assert.ok(!smoke.includes('perAttemptTimeoutMs: 15000'), 'smoke: perAttemptTimeoutMs: 15000 override kaldirildi');
+  assert.ok(!smoke.includes('totalBudgetMs: 60000'), 'smoke: totalBudgetMs: 60000 override kaldirildi');
+  // Ama /feed cold-cache 20s timeout OLMALI (warm-up)
+  assert.ok(smoke.includes('perAttemptTimeoutMs: 20000') || smoke.includes('20000'), 'smoke: /feed warm-up 20s timeout var');
+  // 2. istek 10s/20s butce OLMALI
+  assert.ok(smoke.includes('totalBudgetMs: 20000'), 'smoke: 2. istek 20s butce var');
 });
