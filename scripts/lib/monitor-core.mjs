@@ -171,51 +171,149 @@ export function releaseLock(lockPath, fd) {
 }
 
 
-// ---- HTTP retry (read-only GET; max 3 attempt, exp backoff + jitter) ----
-// Retry YALNIZ: network exception (TypeError fetch hatası), AbortError (timeout),
-// 408 Request Timeout, 425 Too Early, 429 Too Many Requests, 5xx.
-// 4xx (200, 302, 304, 4xx-other) → retry YAPMA; CSP/data/SEO assertion failure
-// upstream'de kontrol edilir (HTTP 200 + assertion FAIL = production problem).
-// Production kalici problemi maskeleme yok: son deneme basarisizsa caller fail eder.
-const RETRY_STATUS = new Set([408, 425, 429]);
+// ---- HTTP retry (read-only GET; ortak toplam bütçe + per-attempt timeout) ----
+// Retry YALNIZ: network exception, AbortError (timeout), 408, 425, 429, 5xx.
+// 4xx (200, 302, 304, 4xx-other) → retry YAPMA; caller assertion yapar
+// (CSP/data/SEO validation upstream — maskeleme yok).
+// Ortak toplam bütçe (default 30s): tüm attempt'lar + backoff toplamı aşılırsa
+// yeni fetch yapilmaz (assert). Per-attempt timeout (default 10s): her fetch için.
+// Retry-After (429/503): delta = min(header, kalan bütçe, 5000ms). HTTP-date destegi.
+// Caller AbortSignal: iptal → tüm zincir durur + throw (AbortError).
+// Final hata: { attempts, status?, totalMs, error? }; URL query/secret loglanmaz (path only).
+const RETRY_STATUS = new Set([408, 425, 429, 503]);
 const MAX_HTTP_ATTEMPTS = 3;
-const BASE_BACKOFF_MS = 200; // 200ms, 400ms, 800ms
+const DEFAULT_TOTAL_BUDGET_MS = 30000;
+const DEFAULT_PER_ATTEMPT_TIMEOUT_MS = 10000;
+const MAX_RETRY_AFTER_MS = 5000;
+const BASE_BACKOFF_MS = 200; // 200ms, 400ms, 800ms (toplam bütçeye dahil)
+
+// URL'den query string ve userinfo'yu kaldir (secret/credential loglanmasin)
+function _safeUrlForLog(u) {
+  try {
+    const url = new URL(u);
+    return url.origin + url.pathname;
+  } catch { return '<invalid-url>'; }
+}
+
+// Retry-After parse: delta-seconds (number) veya HTTP-date (string)
+function _parseRetryAfter(v, nowMs) {
+  if (v == null) return null;
+  const n = Number(v);
+  if (Number.isFinite(n) && n >= 0) return Math.floor(n * 1000);
+  // HTTP-date: "Wed, 21 Oct 2015 07:28:00 GMT"
+  const t = Date.parse(v);
+  if (Number.isFinite(t)) return Math.max(0, t - nowMs);
+  return null;
+}
+
 export async function httpRetry(url, opts = {}) {
   const max = Math.max(1, Math.min(MAX_HTTP_ATTEMPTS, Number(opts.maxAttempts) || MAX_HTTP_ATTEMPTS));
-  const baseBackoff = Number(opts.baseBackoffMs ?? BASE_BACKOFF_MS);
-  const fetchImpl = opts.fetchImpl || fetch;
+  const totalBudget = Math.max(1000, Number(opts.totalBudgetMs ?? DEFAULT_TOTAL_BUDGET_MS));
+  const perAttemptTimeout = Math.max(100, Number(opts.perAttemptTimeoutMs ?? DEFAULT_PER_ATTEMPT_TIMEOUT_MS));
+  const baseBackoff = Math.max(0, Number(opts.baseBackoffMs ?? BASE_BACKOFF_MS));
+  const fetchImpl = opts.fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
   const onAttempt = typeof opts.onAttempt === 'function' ? opts.onAttempt : () => {};
+  // Caller AbortSignal (iptal tum zinciri durdurur)
+  const callerSignal = opts.signal || (opts.fetchOpts && opts.fetchOpts.signal) || null;
+
+  if (!fetchImpl) throw new Error('httpRetry: no fetch implementation available');
+
+  const startMs = Date.now();
+  let attempts = 0;
   let lastErr = null;
+  let lastStatus = null;
+  let lastRes = null;
+  const safeUrl = _safeUrlForLog(url);
+
   for (let attempt = 1; attempt <= max; attempt++) {
-    let res, error;
+    // Caller iptal kontrolu
+    if (callerSignal && callerSignal.aborted) {
+      const e = new Error('aborted');
+      e.name = 'AbortError';
+      throw e;
+    }
+    const elapsed = Date.now() - startMs;
+    const remaining = totalBudget - elapsed;
+    if (remaining <= 0) {
+      // Butce tukendi — yeni fetch yapma
+      const e = new Error(`httpRetry: total budget ${totalBudget}ms exhausted after ${attempts} attempt(s) (elapsed ${elapsed}ms)`);
+      e.attempts = attempts; e.status = lastStatus; e.totalMs = elapsed;
+      throw e;
+    }
+    // Per-attempt timeout = min(perAttemptTimeout, remaining)
+    const thisAttemptTimeout = Math.min(perAttemptTimeout, remaining);
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), thisAttemptTimeout);
+    // Caller signal + bu attempt abort birlestir
+    const onCallerAbort = () => ac.abort();
+    if (callerSignal) {
+      if (callerSignal.aborted) { clearTimeout(t); const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
+      callerSignal.addEventListener('abort', onCallerAbort, { once: true });
+    }
+    attempts++;
+    let res = null; let error = null;
     try {
-      res = await fetchImpl(url, opts.fetchOpts || {});
+      res = await fetchImpl(url, { ...(opts.fetchOpts || {}), signal: ac.signal });
     } catch (e) {
       error = e;
+    } finally {
+      clearTimeout(t);
+      if (callerSignal) callerSignal.removeEventListener('abort', onCallerAbort);
     }
-    onAttempt({ attempt, max, url, status: res && res.status, error: error && error.message });
-    if (!error && (!res || (res.status >= 200 && res.status < 400))) {
-      return res;
-    }
+    lastRes = res; lastStatus = res ? res.status : null;
+
+    onAttempt({ attempt, max, url: safeUrl, status: lastStatus, error: error && error.message, elapsedMs: Date.now() - startMs });
+
+    // 2xx-3xx → basarili
+    if (!error && res && res.status >= 200 && res.status < 400) return res;
+
     lastErr = error || (res ? new Error('http ' + res.status) : new Error('no response'));
-    const status = res && res.status;
-    const retryable = error || (status && (RETRY_STATUS.has(status) || status >= 500));
+    const retryable = error || (res && (RETRY_STATUS.has(res.status) || res.status >= 500));
+
     if (!retryable || attempt >= max) {
       // Son deneme veya retryable degil:
-      //  - 5xx (retryable tükendi) → throw (caller fail)
-      //  - 4xx (retryable degil)    → res döndür (caller validation yapar)
-      //  - network error            → throw
-      if (error) throw lastErr;
-      if (res && status >= 400 && status < 500) return res;
-      throw lastErr;
+      //  - 4xx (retryable degil) → res dondur (caller validation)
+      //  - 5xx/network          → throw (with diagnostic)
+      if (res && res.status >= 400 && res.status < 500 && !error) return res;
+      const err = new Error(`httpRetry failed: ${lastErr.message} (attempts=${attempts}, status=${lastStatus || 'n/a'}, totalMs=${Date.now() - startMs}ms, url=${safeUrl})`);
+      err.attempts = attempts; err.status = lastStatus; err.totalMs = Date.now() - startMs;
+      throw err;
     }
-    // exponential backoff + jitter (0..baseBackoff/2)
-    const delay = baseBackoff * Math.pow(2, attempt - 1) + Math.floor(Math.random() * baseBackoff / 2);
+
+    // Retry-After varsa delta olarak kullan (cap olarak); yoksa exp backoff + jitter
+    let delay;
+    const ra = res && (res.headers && (res.headers.get ? res.headers.get('retry-after') : res.headers['retry-after']));
+    const raMs = _parseRetryAfter(ra, Date.now());
+    if (raMs != null) {
+      // Retry-After: min(header, MAX_RETRY_AFTER_MS, remaining)
+      delay = Math.min(raMs, MAX_RETRY_AFTER_MS);
+    } else {
+      // Exp backoff: base * 2^(n-1) + jitter (0..base/2)
+      delay = baseBackoff * Math.pow(2, attempt - 1) + Math.floor(Math.random() * baseBackoff / 2);
+    }
+    delay = Math.max(0, delay);
+    // Kalan butce ile sinirla; once kontrol (3. attempt'a gecmeden durdur)
+    const remainingAfter = totalBudget - (Date.now() - startMs) - delay;
+    if (remainingAfter <= 0) {
+      // Bütçe bu backoff sonrası tükenecek → yeni fetch yapma, throw
+      const e = new Error(`httpRetry: budget ${totalBudget}ms exhausted before next attempt (attempts=${attempts}, url=${safeUrl})`);
+      e.attempts = attempts; e.status = lastStatus; e.totalMs = Date.now() - startMs;
+      throw e;
+    }
+    // 3. attempt oncesi tekrar kalan-butce kontrolu (cap sonrasi)
+    const thisTimeoutNext = Math.min(perAttemptTimeout, remainingAfter);
+    if (thisTimeoutNext <= 0) {
+      // Yeni fetch yapma
+      const e = new Error(`httpRetry: budget ${totalBudget}ms exhausted before next attempt (attempts=${attempts}, url=${safeUrl})`);
+      e.attempts = attempts; e.status = lastStatus; e.totalMs = Date.now() - startMs;
+      throw e;
+    }
+    // Max 5s cap (kullanici talebi: "asiri Retry-After 5s'de cap edilir")
+    delay = Math.min(delay, remainingAfter);
     await new Promise((r) => setTimeout(r, delay));
   }
-  // son deneme basarisiz
-  if (lastErr) throw lastErr;
-  throw new Error('http-retry exhausted');
+  // (dongu her zaman ya return ya throw yapar)
+  throw lastErr || new Error('http-retry exhausted');
 }
 
 // ---- webhook emit (HTTP POST; timeout + non-2xx retry) ----

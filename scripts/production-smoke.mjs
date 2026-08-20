@@ -61,6 +61,8 @@ async function get(url, headers = {}, timeout = TIMEOUT) {
     res = await httpRetry(url, {
       maxAttempts: 3,
       baseBackoffMs: 300,
+      perAttemptTimeoutMs: 15000,
+      totalBudgetMs: 60000,
       fetchOpts: {
         method: 'GET',
         headers: { 'user-agent': UA, ...headers },
